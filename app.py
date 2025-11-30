@@ -210,6 +210,7 @@ def init_connection():
     client = gspread.authorize(creds)
     return client
 
+@st.cache_resource
 def get_sheet():
     client = init_connection()
     try:
@@ -453,7 +454,9 @@ def metric_card(col, label, value, delta=None, delta_color="pos"):
         """, unsafe_allow_html=True)
 
 # --- UI BAŞLANGICI ---
-init_db()
+if 'db_initialized' not in st.session_state:
+    init_db()
+    st.session_state.db_initialized = True
 
 # Piyasa Verilerini Çek
 market_data = get_market_data()
