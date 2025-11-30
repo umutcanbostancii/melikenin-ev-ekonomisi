@@ -796,37 +796,95 @@ elif page == "Geçmiş & Düzenle 📝":
 
 # --- SAYFA: EMİNEVİM ---
 elif page == "Eminevim 🏠":
-    st.markdown("## 🚗 Araba Hedefi")
+    st.markdown("## 🚗 Araba Hedefi & Eminevim")
     
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
     
-    total_debt = sets['installment_count'] * sets['installment_amount']
+    # Varsayılan değerler yoksa ata (Eski veritabanları için koruma)
+    target_amt = float(sets.get('target_amount', 1300000))
+    fee_rate = float(sets.get('eminevim_fee_rate', 0.07))
+    start_date_str = str(sets.get('eminevim_start_date', datetime.date.today().strftime('%Y-%m-%d')))
+    delivery_month = int(sets.get('eminevim_delivery_month', 5))
     
+    try:
+        start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    except:
+        start_date = datetime.date.today()
+
+    # Hesaplamalar
+    org_fee = target_amt * fee_rate # Dosya Masrafı
+    total_debt = target_amt + org_fee # Toplam Borç (Çekilecek + Masraf)
+    delivery_threshold = target_amt * 0.40 # Teslimat Barajı (%40)
+    
+    # Teslimat Tarihi Hesaplama
+    # Basitçe: Başlangıç + X ay
+    delivery_date = start_date + datetime.timedelta(days=delivery_month*30)
+    days_left = (delivery_date - datetime.date.today()).days
+    
+    # Ödemeler
     df_tx = get_data("transactions")
     paid_amount = 0
     if not df_tx.empty:
         paid_amount = df_tx[df_tx['category'] == 'Eminevim Taksit']['amount'].sum()
     
-    paid_installments_count = int(paid_amount // sets['installment_amount'])
-    remaining_amount = total_debt - paid_amount
-    remaining_installments = sets['installment_count'] - paid_installments_count
-    progress = min(paid_amount / total_debt, 1.0) if total_debt > 0 else 0
+    remaining_total = total_debt - paid_amount
     
-    st.progress(progress)
-    st.caption(f"Hedefin %{progress*100:.1f}'i tamamlandı.")
+    # İlerlemeler
+    progress_total = min(paid_amount / total_debt, 1.0) if total_debt > 0 else 0
+    progress_threshold = min(paid_amount / delivery_threshold, 1.0) if delivery_threshold > 0 else 0
     
-    c1, c2 = st.columns(2)
-    metric_card(c1, "Ödenen", f"{paid_amount:,.0f} TL", f"{paid_installments_count} Taksit")
-    metric_card(c2, "Kalan", f"{remaining_amount:,.0f} TL", f"{remaining_installments:.1f} Taksit", "neg")
+    # --- ÜST BİLGİ KARTLARI ---
+    k1, k2, k3, k4 = st.columns(4)
+    metric_card(k1, "Çekilecek Tutar", f"{target_amt:,.0f} TL")
+    metric_card(k2, "Dosya Masrafı (%{:.0f})".format(fee_rate*100), f"{org_fee:,.0f} TL")
+    metric_card(k3, "Toplam Geri Ödeme", f"{total_debt:,.0f} TL")
+    metric_card(k4, "Kalan Borç", f"{remaining_total:,.0f} TL", "neg")
     
-    st.subheader("Taksit Haritası")
-    html_grid = "<div class='installment-grid'>"
-    for i in range(1, int(sets['installment_count']) + 1):
-        status_class = "paid" if i <= paid_installments_count else "unpaid"
-        html_grid += f"<div class='installment-box {status_class}'>{i}</div>"
-    html_grid += "</div>"
-    st.markdown(html_grid, unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # --- GRAFİKLER VE DURUM ---
+    c1, c2 = st.columns([2, 1])
+    
+    with c1:
+        st.subheader("📊 İlerleme Durumu")
+        
+        st.write(f"**Genel Borç Ödemesi** ({paid_amount:,.0f} / {total_debt:,.0f} TL)")
+        st.progress(progress_total)
+        
+        st.write(f"**Teslimat Barajı (%40)** ({paid_amount:,.0f} / {delivery_threshold:,.0f} TL)")
+        # Baraj rengi için custom html bar veya standart bar
+        st.progress(progress_threshold)
+        if paid_amount >= delivery_threshold:
+            st.success("🎉 Tebrikler! %40 Barajı aşıldı, teslimat hakkı kazanıldı!")
+        else:
+            st.info(f"Teslimat hakkı için **{delivery_threshold - paid_amount:,.0f} TL** daha ödenmeli.")
+
+    with c2:
+        st.subheader("⏳ Teslimat Sayacı")
+        st.markdown(f"""
+        <div class="metric-card" style="text-align: center;">
+            <div class="metric-label">Tahmini Teslimat</div>
+            <div class="metric-value" style="font-size: 1.5rem;">{delivery_date.strftime('%d.%m.%Y')}</div>
+            <hr>
+            <div class="metric-label">Kalan Süre</div>
+            <h2 style="color: #3b82f6; margin:0;">{max(days_left, 0)} Gün</h2>
+            <div style="font-size: 0.8rem; color: #64748b;">({max(days_left//30, 0)} Ay)</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    
+    # --- ÖDEME GEÇMİŞİ ---
+    st.subheader("📝 Ödeme Geçmişi")
+    if not df_tx.empty:
+        emi_txs = df_tx[df_tx['category'] == 'Eminevim Taksit'].sort_values(by='date', ascending=False)
+        if not emi_txs.empty:
+            st.dataframe(emi_txs[['date', 'amount', 'description']], use_container_width=True, hide_index=True)
+        else:
+            st.info("Henüz ödeme kaydı bulunamadı.")
+    else:
+        st.info("Henüz işlem yok.")
 
 # --- SAYFA: AYARLAR ---
 elif page == "Ayarlar 🛠️":
@@ -836,26 +894,39 @@ elif page == "Ayarlar 🛠️":
         df_set = get_data("settings")
         sets = dict(zip(df_set['key'], df_set['value']))
         
-        st.subheader("Hedef & Taksit")
+        st.subheader("🏠 Eminevim Ayarları")
         c1, c2 = st.columns(2)
-        nt = c1.number_input("Hedef Fiyat", value=float(sets['target_amount']))
-        nc = c2.number_input("Taksit Sayısı", value=float(sets['installment_count']))
-        na = c1.number_input("Taksit Tutarı", value=float(sets['installment_amount']))
+        target_amt = c1.number_input("Çekilecek Tutar (Hedef)", value=float(sets.get('target_amount', 1300000)))
+        fee_rate_inp = c2.number_input("Dosya Masrafı Oranı (0.07 = %7)", value=float(sets.get('eminevim_fee_rate', 0.07)), step=0.01, format="%.2f")
         
-        st.subheader("Sabit Gelirler & Döviz")
         c3, c4 = st.columns(2)
-        su = c3.number_input("Umutcan Maaş", value=float(sets['salary_umutcan']))
-        sm = c4.number_input("Melike Gelir", value=float(sets['salary_melike']))
+        start_date_val = sets.get('eminevim_start_date', datetime.date.today().strftime('%Y-%m-%d'))
+        try:
+            d_val = datetime.datetime.strptime(str(start_date_val), '%Y-%m-%d').date()
+        except:
+            d_val = datetime.date.today()
+            
+        start_date_inp = c3.date_input("Proje Başlangıç Tarihi", value=d_val)
+        del_month_inp = c4.number_input("Teslimat Kaçıncı Ayda?", value=int(sets.get('eminevim_delivery_month', 5)))
+
+        st.subheader("Diğer Ayarlar")
+        c5, c6 = st.columns(2)
+        su = c5.number_input("Umutcan Maaş", value=float(sets.get('salary_umutcan', 0)))
+        sm = c6.number_input("Melike Gelir", value=float(sets.get('salary_melike', 0)))
         
-        usd = c3.number_input("Dolar Kuru", value=float(sets['usd_rate']))
-        eur = c4.number_input("Euro Kuru", value=float(sets['eur_rate']))
+        usd = c5.number_input("Dolar Kuru (Sabit)", value=float(sets.get('usd_rate', 42.0)))
+        eur = c6.number_input("Euro Kuru (Sabit)", value=float(sets.get('eur_rate', 49.0)))
         
-        if st.form_submit_button("Güncelle"):
-            update_settings('target_amount', nt)
-            update_settings('installment_count', nc)
-            update_settings('installment_amount', na)
+        if st.form_submit_button("Ayarları Kaydet"):
+            update_settings('target_amount', target_amt)
+            update_settings('eminevim_fee_rate', fee_rate_inp)
+            update_settings('eminevim_start_date', start_date_inp.strftime('%Y-%m-%d'))
+            update_settings('eminevim_delivery_month', del_month_inp)
+            
             update_settings('salary_umutcan', su)
             update_settings('salary_melike', sm)
             update_settings('usd_rate', usd)
             update_settings('eur_rate', eur)
-            st.success("Güncellendi!")
+            st.success("Ayarlar güncellendi!")
+            time.sleep(1)
+            st.rerun()
