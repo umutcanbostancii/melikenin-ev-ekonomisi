@@ -103,13 +103,17 @@ st.markdown("""
     }
     
     /* Expander (Diğer Altınlar) İçi */
-    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+    /* Expander (Diğer Altınlar) İçi - Streamlit güncellemelerine karşı daha spesifik */
+    div[data-testid="stSidebar"] .streamlit-expanderHeader {
         color: #f8fafc !important;
-        background-color: #334155 !important; /* Hafif açık ton */
+        background-color: #334155 !important;
     }
-    section[data-testid="stSidebar"] .streamlit-expanderContent {
+    div[data-testid="stSidebar"] .streamlit-expanderContent {
         color: #f8fafc !important;
         background-color: #1e293b !important;
+    }
+    div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] span, div[data-testid="stSidebar"] div {
+        color: #f8fafc !important;
     }
     
     /* Input alanlarının içindeki metni düzelt (Siyah kalsın ki okunsun) */
@@ -385,7 +389,7 @@ with st.sidebar:
     if st.button("🔄 Verileri Yenile"):
         clear_cache()
         st.rerun()
-    page = st.radio("Menü", ["Kokpit 📊", "Raporlar 📈", "Gider Planla 📅", "İşlem Ekle ➕", "Geçmiş & Düzenle 📝", "Eminevim 🏠", "Ayarlar 🛠️"])
+    page = st.radio("Menü", ["Ana Sayfa 📊", "Raporlar 📈", "Gider Planla 📅", "İşlem Ekle ➕", "Geçmiş & Düzenle 📝", "Eminevim 🏠", "Ayarlar 🛠️"])
     
     st.markdown("---")
     st.subheader("🥇 Altın Kurları")
@@ -430,7 +434,7 @@ with st.sidebar:
             live_gold = st.session_state.manual_gold_price
 
 # --- SAYFA: KOKPİT ---
-if page == "Kokpit 📊":
+if page == "Ana Sayfa 📊":
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
     
@@ -462,7 +466,7 @@ if page == "Kokpit 📊":
     
     c1, c2, c3 = st.columns(3)
     metric_card(c1, "🏠 Ev Kasası (Nakit)", f"{total_home_safe:,.0f} TL")
-    metric_card(c2, "💎 Net Varlık", f"{net_wealth:,.0f} TL", f"{gold_profit:+,.0f} TL Altın Farkı")
+    metric_card(c2, f"💎 Net Varlık ({gold_profit:+,.0f} TL Fark)", f"{net_wealth:,.0f} TL")
     metric_card(c3, "🎯 Hedefe Kalan", f"{target - net_wealth:,.0f} TL")
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -809,7 +813,14 @@ elif page == "Geçmiş & Düzenle 📝":
 # --- SAYFA: EMİNEVİM ---
 elif page == "Eminevim 🏠":
     st.markdown("## 🚗 Araba Hedefi & Eminevim")
-    st.image("https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg", width=400)
+    
+    img_col1, img_col2, img_col3 = st.columns(3)
+    with img_col1:
+        st.image("https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg", use_container_width=True)
+    with img_col2:
+        st.image("https://arabavs.com/images/car_images/2_2_a4223_19.jpg", use_container_width=True)
+    with img_col3:
+        st.image("https://arabavs.com/images/car_images/2_2_e3c2a_0.jpg", use_container_width=True)
     
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
