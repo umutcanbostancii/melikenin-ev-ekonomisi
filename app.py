@@ -10,60 +10,94 @@ from oauth2client.service_account import ServiceAccountCredentials
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Melike'nin Ev Ekonomisi", page_icon="🏠", layout="wide")
 
-# --- CSS: PREMIUM UI ---
-st.markdown("""
+# --- THEME CONFIG ---
+with st.sidebar:
+    st.title("Melike'nin Ev Ekonomisi 🏠")
+    dark_mode = st.toggle("🌙 Dark Mode", value=False)
+
+# --- CSS: DYNAMIC THEME ---
+if dark_mode:
+    # Dark Mode Palette
+    bg_color = "#0e1117"
+    text_color = "#f1f5f9"
+    card_bg = "#1e293b"
+    card_border = "#334155"
+    metric_label = "#94a3b8"
+    metric_value = "#f8fafc"
+    sidebar_bg = "#1e293b"
+    input_bg = "#262730"
+    input_text = "#f1f5f9"
+else:
+    # Light Mode Palette
+    bg_color = "#f0f2f5"
+    text_color = "#1e293b"
+    card_bg = "white"
+    card_border = "#eef0f2"
+    metric_label = "#64748b"
+    metric_value = "#1e293b"
+    sidebar_bg = "#1e293b"
+    input_bg = "white"
+    input_text = "#1e293b"
+
+st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
     /* Genel Stil */
-    .stApp {
-        background-color: #f0f2f5;
+    .stApp {{
+        background-color: {bg_color};
+        color: {text_color};
         font-family: 'Inter', sans-serif;
-    }
+    }}
+    
+    /* Headers & Text Visibility Fix (Global) */
+    h1, h2, h3, h4, h5, h6, p, span, label, li {{
+        color: {text_color} !important;
+    }}
     
     /* Kart Tasarımı */
-    .metric-card {
-        background-color: white;
+    .metric-card {{
+        background-color: {card_bg};
         padding: 20px;
         border-radius: 16px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        border: 1px solid #eef0f2;
+        border: 1px solid {card_border};
         transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .metric-card:hover {
+    }}
+    .metric-card:hover {{
         transform: translateY(-2px);
         box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-    }
+    }}
     
-    .metric-label {
+    .metric-label {{
         font-size: 0.9rem;
-        color: #64748b;
+        color: {metric_label};
         font-weight: 600;
         margin-bottom: 5px;
-    }
+    }}
     
-    .metric-value {
+    .metric-value {{
         font-size: 1.8rem;
-        color: #1e293b;
+        color: {metric_value};
         font-weight: 700;
-    }
+    }}
     
-    .metric-delta {
+    .metric-delta {{
         font-size: 0.85rem;
         margin-top: 5px;
         font-weight: 500;
-    }
-    .delta-pos { color: #10b981; }
-    .delta-neg { color: #ef4444; }
+    }}
+    .delta-pos {{ color: #10b981; }}
+    .delta-neg {{ color: #ef4444; }}
     
     /* Eminevim Grid */
-    .installment-grid {
+    .installment-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
         gap: 8px;
         margin-top: 20px;
-    }
-    .installment-box {
+    }}
+    .installment-box {{
         height: 45px;
         display: flex;
         align-items: center;
@@ -73,25 +107,25 @@ st.markdown("""
         font-size: 14px;
         color: white;
         box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    .paid { 
+    }}
+    .paid {{ 
         background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
-    }
-    .unpaid { 
+    }}
+    .unpaid {{ 
         background-color: #e2e8f0; 
         color: #94a3b8; 
-    }
+    }}
     
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #1e293b;
-    }
+    /* Sidebar (Always Dark) */
+    section[data-testid="stSidebar"] {{
+        background-color: {sidebar_bg};
+    }}
     /* Gizleme */
-    #MainMenu {visibility: visible;}
-    footer {visibility: hidden;}
-    header {visibility: visible;}
+    #MainMenu {{visibility: visible;}}
+    footer {{visibility: hidden;}}
+    header {{visibility: visible;}}
     
-    /* Sidebar Metin ve Başlıklar */
+    /* Sidebar Metin ve Başlıklar (Always White) */
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3,
@@ -99,55 +133,55 @@ st.markdown("""
     section[data-testid="stSidebar"] p,
     section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] div {
+    section[data-testid="stSidebar"] div {{
         color: #f8fafc !important;
-    }
+    }}
     
     /* Sidebar İkonlar (SVG) */
-    section[data-testid="stSidebar"] svg {
+    section[data-testid="stSidebar"] svg {{
         fill: #f8fafc !important;
         color: #f8fafc !important;
-    }
+    }}
 
     /* Sidebar Button (Verileri Yenile) */
-    section[data-testid="stSidebar"] button {
+    section[data-testid="stSidebar"] button {{
         background-color: #334155 !important;
         color: #f8fafc !important;
         border: 1px solid #475569 !important;
         transition: all 0.2s ease;
-    }
-    section[data-testid="stSidebar"] button:hover {
+    }}
+    section[data-testid="stSidebar"] button:hover {{
         background-color: #475569 !important;
         color: white !important;
         border-color: #94a3b8 !important;
-    }
+    }}
     
     /* Expander (Diğer Altınlar) */
-    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {{
         color: #f8fafc !important;
         background-color: #334155 !important;
         border-radius: 4px;
-    }
-    section[data-testid="stSidebar"] .streamlit-expanderContent {
+    }}
+    section[data-testid="stSidebar"] .streamlit-expanderContent {{
         color: #f8fafc !important;
         background-color: #1e293b !important;
         border: 1px solid #334155;
-    }
+    }}
     /* Expander Hover Fix */
-    section[data-testid="stSidebar"] .streamlit-expanderHeader:hover {
+    section[data-testid="stSidebar"] .streamlit-expanderHeader:hover {{
         background-color: #475569 !important;
         color: white !important;
-    }
+    }}
     
-    /* Input alanlarının içindeki metni düzelt (Siyah kalsın ki okunsun) */
+    /* Input alanlarının içindeki metni düzelt */
     section[data-testid="stSidebar"] input, 
     section[data-testid="stSidebar"] textarea, 
-    section[data-testid="stSidebar"] select {
+    section[data-testid="stSidebar"] select {{
         color: #1e293b !important;
-    }
+    }}
     
     /* Araba Resimleri */
-    .car-container {
+    .car-container {{
         width: 100%;
         height: 260px;
         border-radius: 15px;
@@ -155,16 +189,16 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 10px;
         position: relative;
-    }
-    .car-img {
+    }}
+    .car-img {{
         width: 100%;
         height: 100%;
         object-fit: cover;
-    }
-    .car-img-zoom {
+    }}
+    .car-img-zoom {{
         transform: scale(1.2);
         transform-origin: center;
-    }
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -428,7 +462,7 @@ if 'gold_manual_mode' not in st.session_state: st.session_state.gold_manual_mode
 if 'manual_gold_price' not in st.session_state: st.session_state.manual_gold_price = 5700.0 
 
 with st.sidebar:
-    st.title("Melike'nin Ev Ekonomisi 🏠")
+    # st.title("Melike'nin Ev Ekonomisi 🏠") # Moved to top
     if st.button("🔄 Verileri Yenile"):
         clear_cache()
         st.rerun()
