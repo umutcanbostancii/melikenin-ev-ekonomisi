@@ -439,6 +439,16 @@ def get_financial_summary():
     return balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inventory, total_expense_all_time
 
 # --- AI HELPER ---
+def get_monthly_summary():
+    df = get_data("transactions")
+    if df.empty: return "Veri yok"
+    
+    df['date'] = pd.to_datetime(df['date'])
+    # Son 12 ayın özeti
+    monthly = df.groupby([pd.Grouper(key='date', freq='M'), 'type'])['amount'].sum().reset_index()
+    monthly['date'] = monthly['date'].dt.strftime('%Y-%m')
+    return monthly.to_string(index=False)
+
 def get_gemini_advice(summary_text):
     if "gemini_api_key" not in st.secrets:
         return "⚠️ API Anahtarı bulunamadı. Lütfen secrets.toml dosyasını kontrol edin."
@@ -1138,89 +1148,143 @@ elif page == "AI Asistan 🤖":
                     last_txs = df_tx.sort_values(by='date', ascending=False).head(10)
                     recent_tx_str = last_txs[['date', 'type', 'category', 'amount', 'description']].to_string(index=False)
 
+                # Aylık Özet (Tahmin ve Anormallik için)
+                monthly_summary = get_monthly_summary()
+
                 context = f"""
-                Sen akıllı bir finansal asistansın. Kullanıcı sana bir soru sorabilir VEYA bir işlem (gelir/gider/altın) eklemek isteyebilir.
+                Sen akıllı bir finansal asistansın. Kullanıcı sana bir soru sorabilir, işlem eklemek/silmek isteyebilir veya grafik isteyebilir.
                 
                 **Mevcut Kategoriler:** {', '.join(all_cats)}
                 **Mevcut Kaynaklar:** Umutcan Kasa, Melike Kasa, Ortak Kasa, Kredi Kartı
                 
                 **Kullanıcı Girdisi:** {prompt}
                 
-                EĞER kullanıcı bir işlem eklemek istiyorsa (Örn: "Marketten 500 tl harcadım", "1000 tl maaş yattı", "1 gram altın aldım"), 
-                bana SADECE aşağıdaki formatta bir JSON objesi döndür (Markdown yok, sadece JSON):
+                1. EĞER kullanıcı bir işlem EKLEMEK istiyorsa:
                 {{
                     "action": "add_transaction",
                     "type": "Gider" veya "Gelir" veya "Altın Alım",
                     "amount": 0.0,
-                    "category": "En uygun kategori (Yoksa mantıklı bir isim uydur)",
-                    "source": "En uygun kaynak (Varsayılan: Ortak Kasa)",
+                    "category": "En uygun kategori",
+                    "source": "En uygun kaynak",
                     "description": "Açıklama",
-                    "is_new_category": true/false (Eğer kategori listede yoksa true),
-                    "gold_gram": 0.0 (Sadece altınsa),
-                    "gold_type": "Gram 24k" (Sadece altınsa, varsayılan Gram 24k)
+                    "is_new_category": true/false,
+                    "gold_gram": 0.0,
+                    "gold_type": "Gram 24k"
                 }}
                 
-                EĞER kullanıcı sadece soru soruyorsa veya sohbet ediyorsa, "action": "chat" olan bir JSON döndür:
+                2. EĞER kullanıcı bir işlem SİLMEK istiyorsa (Örn: "Son market harcamasını sil"):
+                {{
+                    "action": "delete_transaction",
+                    "query": "Silinecek işlemi tanımlayan kısa metin (örn: son migros harcaması)"
+                }}
+                
+                3. EĞER kullanıcı GRAFİK istiyorsa (Örn: "Benzin harcamalarımı çiz", "Gider dağılımımı göster"):
+                {{
+                    "action": "plot",
+                    "plot_type": "line" (zaman serisi) veya "pie" (dağılım) veya "bar",
+                    "category": "Hepsi" veya spesifik kategori,
+                    "title": "Grafik Başlığı"
+                }}
+
+                4. EĞER kullanıcı SOHBET ediyorsa (Soru, Tahmin, Anormallik vb.):
                 {{
                     "action": "chat",
-                    "response": "Buraya cevabını yaz..."
+                    "response": "Cevabın..."
                 }}
                 
-                **Kullanıcının Finansal Durumu (Soru cevaplamak için):**
+                **Veriler:**
                 - Nakit: {total_home_safe:,.0f} TL
                 - Altın: {gold_val:,.0f} TL
                 - Borç: {balances['Kredi Kartı Borcu']:,.0f} TL
                 - Son İşlemler: \n{recent_tx_str}
+                - Aylık Özet (Trend Analizi İçin): \n{monthly_summary}
                 """
                 
                 raw_response = get_gemini_advice(context)
-                
-                # JSON Temizleme (Bazen markdown ```json ... ``` içinde gelebilir)
                 cleaned_response = raw_response.replace("```json", "").replace("```", "").strip()
                 
                 try:
                     data = json.loads(cleaned_response)
+                    action = data.get("action")
                     
-                    if data.get("action") == "add_transaction":
+                    if action == "add_transaction":
                         st.markdown(f"✅ **İşlem Algılandı:**")
                         st.info(f"""
                         **Tip:** {data['type']}
                         **Tutar:** {data['amount']} TL
-                        **Kategori:** {data['category']} {'(Yeni)' if data['is_new_category'] else ''}
+                        **Kategori:** {data['category']}
                         **Açıklama:** {data['description']}
-                        **Kaynak:** {data['source']}
                         """)
-                        
-                        # Onay Butonları için Session State Kullanımı
-                        # Not: Streamlit'te chat içinde buton yönetimi zordur, callback kullanacağız.
                         st.session_state.pending_tx = data
                         st.session_state.messages.append({"role": "assistant", "content": "İşlemi onaylıyor musun?", "is_pending": True})
                         st.rerun()
                         
+                    elif action == "delete_transaction":
+                        # Silinecek işlemi bulmaya çalış
+                        query = data.get("query", "").lower()
+                        target_tx = None
+                        
+                        if not df_tx.empty:
+                            # Basit bir arama mantığı: Son 10 işlemde ara
+                            for idx, row in last_txs.iterrows():
+                                search_text = f"{row['category']} {row['description']} {row['amount']}".lower()
+                                if any(word in search_text for word in query.split()):
+                                    target_tx = row
+                                    break
+                        
+                        if target_tx is not None:
+                            st.markdown(f"🗑️ **Silinecek İşlem Bulundu:**")
+                            st.warning(f"""
+                            **Tarih:** {target_tx['date'].strftime('%Y-%m-%d')}
+                            **Kategori:** {target_tx['category']}
+                            **Tutar:** {target_tx['amount']} TL
+                            **Açıklama:** {target_tx['description']}
+                            """)
+                            st.session_state.pending_delete = int(target_tx['id'])
+                            st.session_state.messages.append({"role": "assistant", "content": "Bu işlemi silmek istediğine emin misin?", "is_pending_delete": True})
+                            st.rerun()
+                        else:
+                            st.error("Silinecek işlem bulunamadı.")
+                            st.session_state.messages.append({"role": "assistant", "content": "Silinecek işlemi bulamadım. Daha spesifik olabilir misin?"})
+
+                    elif action == "plot":
+                        st.markdown(f"📊 **{data.get('title', 'Grafik')}**")
+                        
+                        chart_df = df_tx.copy()
+                        chart_df['date'] = pd.to_datetime(chart_df['date'])
+                        
+                        if data.get('category') != "Hepsi":
+                            chart_df = chart_df[chart_df['category'].str.contains(data.get('category'), case=False, na=False)]
+                        
+                        if data.get('plot_type') == 'line':
+                            fig = px.line(chart_df.sort_values('date'), x='date', y='amount', color='category', title=data.get('title'))
+                        elif data.get('plot_type') == 'pie':
+                            fig = px.pie(chart_df, values='amount', names='category', title=data.get('title'))
+                        else:
+                            fig = px.bar(chart_df, x='date', y='amount', color='category', title=data.get('title'))
+                            
+                        st.plotly_chart(fig, use_container_width=True)
+                        st.session_state.messages.append({"role": "assistant", "content": f"İşte istediğin grafik: {data.get('title')}"})
+
                     else:
                         response_text = data.get("response", raw_response)
                         st.markdown(response_text)
                         st.session_state.messages.append({"role": "assistant", "content": response_text})
                         
                 except json.JSONDecodeError:
-                    # JSON değilse normal metin olarak kabul et
                     st.markdown(raw_response)
                     st.session_state.messages.append({"role": "assistant", "content": raw_response})
 
-    # Bekleyen İşlem Onayı (Chat döngüsü dışında kontrol et)
+    # Bekleyen İşlem Onayı (EKLEME)
     if "pending_tx" in st.session_state and st.session_state.pending_tx:
         with st.chat_message("assistant"):
             st.write("Yukarıdaki işlemi onaylıyor musun?")
             c1, c2 = st.columns(2)
-            if c1.button("✅ Evet, Kaydet"):
+            if c1.button("✅ Evet, Kaydet", type="primary", use_container_width=True):
                 tx = st.session_state.pending_tx
-                
-                # Yeni Kategori ise Ekle
                 if tx.get("is_new_category"):
                     add_category(tx['category'], tx['type'])
-                    st.toast(f"Yeni kategori oluşturuldu: {tx['category']}")
                 
-                # İşlemi Ekle
                 if tx['type'] == 'Altın Alım':
                      add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tx['amount'], tx['source'], 'Altın Alımı', 1, gold_gram=tx.get('gold_gram', 0), gold_price=tx['amount']/tx.get('gold_gram', 1), gold_type=tx.get('gold_type', 'Gram 24k'))
                 else:
@@ -1232,8 +1296,27 @@ elif page == "AI Asistan 🤖":
                 time.sleep(1)
                 st.rerun()
                 
-            if c2.button("❌ İptal"):
+            if c2.button("❌ İptal", type="secondary", use_container_width=True):
                 st.warning("İşlem iptal edildi.")
                 st.session_state.messages.append({"role": "assistant", "content": "❌ İşlem iptal edildi."})
                 del st.session_state.pending_tx
+                st.rerun()
+
+    # Bekleyen İşlem Onayı (SİLME)
+    if "pending_delete" in st.session_state and st.session_state.pending_delete:
+        with st.chat_message("assistant"):
+            st.write("⚠️ Bu işlemi silmek istediğine emin misin?")
+            c1, c2 = st.columns(2)
+            if c1.button("🗑️ Evet, Sil", type="primary", use_container_width=True):
+                delete_row_by_id("transactions", st.session_state.pending_delete)
+                st.success("İşlem Silindi.")
+                st.session_state.messages.append({"role": "assistant", "content": "✅ İşlem silindi."})
+                del st.session_state.pending_delete
+                time.sleep(1)
+                st.rerun()
+                
+            if c2.button("❌ Vazgeç", type="secondary", use_container_width=True):
+                st.info("Silme işlemi iptal edildi.")
+                st.session_state.messages.append({"role": "assistant", "content": "❌ Silme iptal edildi."})
+                del st.session_state.pending_delete
                 st.rerun()
