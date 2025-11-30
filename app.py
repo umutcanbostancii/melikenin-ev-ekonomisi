@@ -145,6 +145,15 @@ st.markdown("""
     section[data-testid="stSidebar"] select {
         color: #1e293b !important;
     }
+    
+    /* Araba Resimleri */
+    .car-img {
+        width: 100%;
+        height: 200px;
+        object-fit: cover;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -839,11 +848,11 @@ elif page == "Eminevim 🏠":
     
     img_col1, img_col2, img_col3 = st.columns(3)
     with img_col1:
-        st.image("https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg", use_container_width=True)
+        st.markdown('<img src="https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg" class="car-img">', unsafe_allow_html=True)
     with img_col2:
-        st.image("https://arabavs.com/images/car_images/2_2_a4223_19.jpg", use_container_width=True)
+        st.markdown('<img src="https://arabavs.com/images/car_images/2_2_a4223_19.jpg" class="car-img">', unsafe_allow_html=True)
     with img_col3:
-        st.image("https://arabavs.com/images/car_images/2_2_e3c2a_0.jpg", use_container_width=True)
+        st.markdown('<img src="https://arabavs.com/images/car_images/2_2_e3c2a_0.jpg" class="car-img">', unsafe_allow_html=True)
     
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
