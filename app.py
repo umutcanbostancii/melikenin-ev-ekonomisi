@@ -6,6 +6,7 @@ import yfinance as yf
 import plotly.express as px
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import google.generativeai as genai
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Melike'nin Ev Ekonomisi", page_icon="🏠", layout="wide")
@@ -437,6 +438,19 @@ def get_financial_summary():
     
     return balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inventory, total_expense_all_time
 
+# --- AI HELPER ---
+def get_gemini_advice(summary_text):
+    if "gemini_api_key" not in st.secrets:
+        return "⚠️ API Anahtarı bulunamadı. Lütfen secrets.toml dosyasını kontrol edin."
+    
+    try:
+        genai.configure(api_key=st.secrets["gemini_api_key"])
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        response = model.generate_content(summary_text)
+        return response.text
+    except Exception as e:
+        return f"❌ Bir hata oluştu: {str(e)}"
+
 # --- UI HELPER FUNCTIONS ---
 def metric_card(col, label, value, delta=None, delta_color="pos"):
     with col:
@@ -469,7 +483,7 @@ with st.sidebar:
     if st.button("🔄 Verileri Yenile"):
         clear_cache()
         st.rerun()
-    page = st.radio("Menü", ["Ana Sayfa 📊", "Raporlar 📈", "Gider Planla 📅", "İşlem Ekle ➕", "Geçmiş & Düzenle 📝", "Eminevim 🏠", "Ayarlar 🛠️"])
+    page = st.radio("Menü", ["Ana Sayfa 📊", "Raporlar 📈", "Gider Planla 📅", "İşlem Ekle ➕", "Geçmiş & Düzenle 📝", "Eminevim 🏠", "Ayarlar 🛠️", "AI Asistan 🤖"])
     
     st.markdown("---")
     st.subheader("🥇 Altın Kurları")
@@ -1034,3 +1048,192 @@ elif page == "Ayarlar 🛠️":
             st.success("Ayarlar güncellendi!")
             time.sleep(1)
             st.rerun()
+
+# --- SAYFA: AI ASISTAN ---
+# --- SAYFA: AI ASISTAN ---
+elif page == "AI Asistan 🤖":
+    st.markdown("## 🤖 AI Finansal Asistan")
+    st.info("Gemini AI, finansal verilerinizi analiz ederek size tasarruf ve bütçe tavsiyeleri verir.")
+
+    # Session State Başlatma
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Mesaj Geçmişini Göster
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Analiz Butonu (Sadece hiç mesaj yoksa veya kullanıcı isterse)
+    if st.button("✨ Detaylı Analiz Başlat", type="primary"):
+        with st.spinner("Veriler analiz ediliyor ve Gemini'ye soruluyor..."):
+            # Verileri Hazırla
+            balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense = get_financial_summary()
+            df_tx = get_data("transactions")
+            
+            # Son 30 günlük harcamalar
+            if not df_tx.empty:
+                df_tx['date'] = pd.to_datetime(df_tx['date'])
+                last_30_days = df_tx[df_tx['date'] > (pd.Timestamp.now() - pd.Timedelta(days=30))]
+                top_expenses = last_30_days[last_30_days['type'] == 'Gider'].groupby('category')['amount'].sum().sort_values(ascending=False).head(5)
+                top_expenses_str = top_expenses.to_string()
+            else:
+                top_expenses_str = "Veri yok"
+
+            # Altın Değeri
+            gold_val = total_pure_gold * (market_data['gold'] if market_data else st.session_state.manual_gold_price)
+            
+            summary_text = f"""
+            Sen uzman bir finansal danışmansın. Aşağıdaki verilere göre bana Türkçe olarak, samimi bir dille finansal durumumu yorumla ve tasarruf tavsiyeleri ver.
+            
+            **Genel Durum:**
+            - Toplam Nakit Varlık: {total_home_safe:,.0f} TL
+            - Toplam Altın Değeri: {gold_val:,.0f} TL
+            - Kredi Kartı Borcu: {balances['Kredi Kartı Borcu']:,.0f} TL
+            - Toplam Net Varlık: {total_home_safe + gold_val - balances['Kredi Kartı Borcu']:,.0f} TL
+            
+            **Son 30 Günün En Yüksek Harcamaları:**
+            {top_expenses_str}
+            
+            Lütfen şunlara odaklan:
+            1. Harcama alışkanlıklarım nasıl?
+            2. Nereden tasarruf edebilirim?
+            3. Altın yatırımı stratejim mantıklı mı?
+            4. Kredi kartı borcum riskli seviyede mi?
+            
+            Cevabı maddeler halinde, emojiler kullanarak ve motive edici bir tonda ver.
+            """
+            
+            advice = get_gemini_advice(summary_text)
+            
+            # Mesajı Ekle ve Göster
+            st.session_state.messages.append({"role": "assistant", "content": advice})
+            st.rerun()
+
+    # Kullanıcıdan Soru Al
+    if prompt := st.chat_input("Finansal bir soru sor veya işlem ekle (Örn: Migros 500 TL)..."):
+        # Kullanıcı mesajını ekle
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # AI Cevabı
+        with st.chat_message("assistant"):
+            with st.spinner("Düşünüyor..."):
+                import json
+                
+                balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense = get_financial_summary()
+                gold_val = total_pure_gold * (market_data['gold'] if market_data else st.session_state.manual_gold_price)
+                
+                # Mevcut Kategoriler
+                cats_gider = get_categories("Gider")
+                cats_gelir = get_categories("Gelir")
+                all_cats = cats_gider + cats_gelir
+                
+                # Son işlemleri çek
+                df_tx = get_data("transactions")
+                recent_tx_str = "Henüz işlem yok."
+                if not df_tx.empty:
+                    df_tx['date'] = pd.to_datetime(df_tx['date'])
+                    last_txs = df_tx.sort_values(by='date', ascending=False).head(10)
+                    recent_tx_str = last_txs[['date', 'type', 'category', 'amount', 'description']].to_string(index=False)
+
+                context = f"""
+                Sen akıllı bir finansal asistansın. Kullanıcı sana bir soru sorabilir VEYA bir işlem (gelir/gider/altın) eklemek isteyebilir.
+                
+                **Mevcut Kategoriler:** {', '.join(all_cats)}
+                **Mevcut Kaynaklar:** Umutcan Kasa, Melike Kasa, Ortak Kasa, Kredi Kartı
+                
+                **Kullanıcı Girdisi:** {prompt}
+                
+                EĞER kullanıcı bir işlem eklemek istiyorsa (Örn: "Marketten 500 tl harcadım", "1000 tl maaş yattı", "1 gram altın aldım"), 
+                bana SADECE aşağıdaki formatta bir JSON objesi döndür (Markdown yok, sadece JSON):
+                {{
+                    "action": "add_transaction",
+                    "type": "Gider" veya "Gelir" veya "Altın Alım",
+                    "amount": 0.0,
+                    "category": "En uygun kategori (Yoksa mantıklı bir isim uydur)",
+                    "source": "En uygun kaynak (Varsayılan: Ortak Kasa)",
+                    "description": "Açıklama",
+                    "is_new_category": true/false (Eğer kategori listede yoksa true),
+                    "gold_gram": 0.0 (Sadece altınsa),
+                    "gold_type": "Gram 24k" (Sadece altınsa, varsayılan Gram 24k)
+                }}
+                
+                EĞER kullanıcı sadece soru soruyorsa veya sohbet ediyorsa, "action": "chat" olan bir JSON döndür:
+                {{
+                    "action": "chat",
+                    "response": "Buraya cevabını yaz..."
+                }}
+                
+                **Kullanıcının Finansal Durumu (Soru cevaplamak için):**
+                - Nakit: {total_home_safe:,.0f} TL
+                - Altın: {gold_val:,.0f} TL
+                - Borç: {balances['Kredi Kartı Borcu']:,.0f} TL
+                - Son İşlemler: \n{recent_tx_str}
+                """
+                
+                raw_response = get_gemini_advice(context)
+                
+                # JSON Temizleme (Bazen markdown ```json ... ``` içinde gelebilir)
+                cleaned_response = raw_response.replace("```json", "").replace("```", "").strip()
+                
+                try:
+                    data = json.loads(cleaned_response)
+                    
+                    if data.get("action") == "add_transaction":
+                        st.markdown(f"✅ **İşlem Algılandı:**")
+                        st.info(f"""
+                        **Tip:** {data['type']}
+                        **Tutar:** {data['amount']} TL
+                        **Kategori:** {data['category']} {'(Yeni)' if data['is_new_category'] else ''}
+                        **Açıklama:** {data['description']}
+                        **Kaynak:** {data['source']}
+                        """)
+                        
+                        # Onay Butonları için Session State Kullanımı
+                        # Not: Streamlit'te chat içinde buton yönetimi zordur, callback kullanacağız.
+                        st.session_state.pending_tx = data
+                        st.session_state.messages.append({"role": "assistant", "content": "İşlemi onaylıyor musun?", "is_pending": True})
+                        st.rerun()
+                        
+                    else:
+                        response_text = data.get("response", raw_response)
+                        st.markdown(response_text)
+                        st.session_state.messages.append({"role": "assistant", "content": response_text})
+                        
+                except json.JSONDecodeError:
+                    # JSON değilse normal metin olarak kabul et
+                    st.markdown(raw_response)
+                    st.session_state.messages.append({"role": "assistant", "content": raw_response})
+
+    # Bekleyen İşlem Onayı (Chat döngüsü dışında kontrol et)
+    if "pending_tx" in st.session_state and st.session_state.pending_tx:
+        with st.chat_message("assistant"):
+            st.write("Yukarıdaki işlemi onaylıyor musun?")
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Evet, Kaydet"):
+                tx = st.session_state.pending_tx
+                
+                # Yeni Kategori ise Ekle
+                if tx.get("is_new_category"):
+                    add_category(tx['category'], tx['type'])
+                    st.toast(f"Yeni kategori oluşturuldu: {tx['category']}")
+                
+                # İşlemi Ekle
+                if tx['type'] == 'Altın Alım':
+                     add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tx['amount'], tx['source'], 'Altın Alımı', 1, gold_gram=tx.get('gold_gram', 0), gold_price=tx['amount']/tx.get('gold_gram', 1), gold_type=tx.get('gold_type', 'Gram 24k'))
+                else:
+                    add_transaction(datetime.date.today(), tx['type'], tx['category'], tx['amount'], tx['source'], tx['description'], 1)
+                
+                st.success("İşlem Başarıyla Kaydedildi! 🎉")
+                st.session_state.messages.append({"role": "assistant", "content": "✅ İşlem kaydedildi."})
+                del st.session_state.pending_tx
+                time.sleep(1)
+                st.rerun()
+                
+            if c2.button("❌ İptal"):
+                st.warning("İşlem iptal edildi.")
+                st.session_state.messages.append({"role": "assistant", "content": "❌ İşlem iptal edildi."})
+                del st.session_state.pending_tx
+                st.rerun()
