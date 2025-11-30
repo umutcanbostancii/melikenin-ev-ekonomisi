@@ -187,15 +187,20 @@ def init_db():
         ws_plan = sheet.add_worksheet(title="planned_expenses", rows="100", cols="4")
         ws_plan.append_row(["id", "name", "amount", "frequency"])
 
+@st.cache_data(ttl=600)
 def get_data(worksheet_name):
     sheet = get_sheet()
     ws = sheet.worksheet(worksheet_name)
     return pd.DataFrame(ws.get_all_records())
 
+def clear_cache():
+    st.cache_data.clear()
+
 def add_row(worksheet_name, row_data):
     sheet = get_sheet()
     ws = sheet.worksheet(worksheet_name)
     ws.append_row(row_data)
+    clear_cache()
 
 def delete_row_by_id(worksheet_name, id_val, id_col_name="id"):
     sheet = get_sheet()
@@ -206,6 +211,7 @@ def delete_row_by_id(worksheet_name, id_val, id_col_name="id"):
     
     if cell:
         ws.delete_rows(cell.row)
+        clear_cache()
 
 def update_row_by_id(worksheet_name, id_val, col_name, new_val):
     sheet = get_sheet()
@@ -217,6 +223,7 @@ def update_row_by_id(worksheet_name, id_val, col_name, new_val):
         try:
             col_idx = header.index(col_name) + 1
             ws.update_cell(cell.row, col_idx, new_val)
+            clear_cache()
         except:
             pass
 
@@ -228,6 +235,7 @@ def update_settings(key, value):
         ws.update_cell(cell.row, 2, value)
     else:
         ws.append_row([key, value])
+    clear_cache()
 
 def get_next_id(worksheet_name):
     df = get_data(worksheet_name)
@@ -272,6 +280,7 @@ GOLD_TYPES = {
     "Cumhuriyet": 6.61
 }
 
+@st.cache_data(ttl=3600)
 def get_market_data():
     try:
         tickers = yf.download("TRY=X EURTRY=X GC=F", period="5d", progress=False)['Close']
@@ -373,6 +382,9 @@ if 'manual_gold_price' not in st.session_state: st.session_state.manual_gold_pri
 
 with st.sidebar:
     st.title("Melike'nin Ev Ekonomisi 🏠")
+    if st.button("🔄 Verileri Yenile"):
+        clear_cache()
+        st.rerun()
     page = st.radio("Menü", ["Kokpit 📊", "Raporlar 📈", "Gider Planla 📅", "İşlem Ekle ➕", "Geçmiş & Düzenle 📝", "Eminevim 🏠", "Ayarlar 🛠️"])
     
     st.markdown("---")
@@ -797,6 +809,7 @@ elif page == "Geçmiş & Düzenle 📝":
 # --- SAYFA: EMİNEVİM ---
 elif page == "Eminevim 🏠":
     st.markdown("## 🚗 Araba Hedefi & Eminevim")
+    st.image("https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg", width=400)
     
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
