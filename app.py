@@ -149,10 +149,10 @@ st.markdown("""
     /* Araba Resimleri */
     .car-img {
         width: 100%;
-        height: 250px;
+        height: 260px;
         object-fit: fill;
         border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.01);
     }
 </style>
 """, unsafe_allow_html=True)
