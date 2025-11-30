@@ -92,6 +92,7 @@ st.markdown("""
     header {visibility: visible;} /* Header görünsün (Mobil için şart) */
     
     /* Sidebar İyileştirmeleri */
+    section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] .stMarkdown, 
     section[data-testid="stSidebar"] p,
     section[data-testid="stSidebar"] span,
@@ -387,9 +388,19 @@ with st.sidebar:
     
     gold_prices = {k: live_gold * v for k, v in GOLD_TYPES.items()}
     
-    k1, k2 = st.columns(2)
-    k1.metric("24 Ayar", f"{gold_prices['Gram 24k']:,.0f} ₺")
-    k2.metric("22 Ayar", f"{gold_prices['Gram 22k']:,.0f} ₺")
+    # Ana Gösterge (Custom HTML for smaller size)
+    st.markdown(f"""
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+        <div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">24 Ayar</div>
+            <div style="font-size: 1.1rem; font-weight: 500; color: white;">{gold_prices['Gram 24k']:,.0f} ₺</div>
+        </div>
+        <div>
+            <div style="font-size: 0.8rem; color: #94a3b8;">22 Ayar</div>
+            <div style="font-size: 1.1rem; font-weight: 500; color: white;">{gold_prices['Gram 22k']:,.0f} ₺</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     with st.expander("Diğer Altınlar", expanded=True):
         st.write(f"**Çeyrek:** {gold_prices['Çeyrek Altın']:,.0f} ₺")
