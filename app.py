@@ -151,9 +151,9 @@ st.markdown("""
         width: 100%;
         height: 260px;
         object-fit: fill;
-        border-radius: 8px;
+        border-radius: 15px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.01);
-        padding-bottom: 10px;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
