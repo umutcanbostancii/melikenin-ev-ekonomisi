@@ -152,7 +152,7 @@ st.markdown("""
         height: 260px;
         border-radius: 15px;
         overflow: hidden;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.01);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 10px;
         position: relative;
     }
@@ -859,7 +859,7 @@ elif page == "Eminevim 🏠":
     
     img_col1, img_col2, img_col3 = st.columns(3)
     with img_col1:
-        st.markdown('<div class="car-container"><img src="https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg" class="car-img"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="car-container"><img src="https://www.arabahabercisi.com/wp-content/uploads/2022/10/2022-VW-Golf-Fiyatlar%C4%B1-Ekim-600x381.jpg" class="car-img car-img-zoom"></div>', unsafe_allow_html=True)
     with img_col2:
         st.markdown('<div class="car-container"><img src="https://arabavs.com/images/car_images/2_2_a4223_19.jpg" class="car-img car-img-zoom"></div>', unsafe_allow_html=True)
     with img_col3:
