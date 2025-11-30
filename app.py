@@ -153,6 +153,7 @@ st.markdown("""
         object-fit: fill;
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.01);
+        padding-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
