@@ -87,33 +87,56 @@ st.markdown("""
         background-color: #1e293b;
     }
     /* Gizleme */
-    #MainMenu {visibility: visible;} /* Hamburger menü görünsün */
+    #MainMenu {visibility: visible;}
     footer {visibility: hidden;}
-    header {visibility: visible;} /* Header görünsün (Mobil için şart) */
+    header {visibility: visible;}
     
-    /* Sidebar İyileştirmeleri */
+    /* Sidebar Metin ve Başlıklar */
     section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
     section[data-testid="stSidebar"] .stMarkdown, 
     section[data-testid="stSidebar"] p,
     section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] div[data-testid="stMetricValue"],
-    section[data-testid="stSidebar"] div[data-testid="stMetricLabel"] {
+    section[data-testid="stSidebar"] div {
         color: #f8fafc !important;
     }
     
-    /* Expander (Diğer Altınlar) İçi */
-    /* Expander (Diğer Altınlar) İçi - Streamlit güncellemelerine karşı daha spesifik */
-    div[data-testid="stSidebar"] .streamlit-expanderHeader {
+    /* Sidebar İkonlar (SVG) */
+    section[data-testid="stSidebar"] svg {
+        fill: #f8fafc !important;
+        color: #f8fafc !important;
+    }
+
+    /* Sidebar Button (Verileri Yenile) */
+    section[data-testid="stSidebar"] button {
+        background-color: #334155 !important;
+        color: #f8fafc !important;
+        border: 1px solid #475569 !important;
+        transition: all 0.2s ease;
+    }
+    section[data-testid="stSidebar"] button:hover {
+        background-color: #475569 !important;
+        color: white !important;
+        border-color: #94a3b8 !important;
+    }
+    
+    /* Expander (Diğer Altınlar) */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
         color: #f8fafc !important;
         background-color: #334155 !important;
+        border-radius: 4px;
     }
-    div[data-testid="stSidebar"] .streamlit-expanderContent {
+    section[data-testid="stSidebar"] .streamlit-expanderContent {
         color: #f8fafc !important;
         background-color: #1e293b !important;
+        border: 1px solid #334155;
     }
-    div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] span, div[data-testid="stSidebar"] div {
-        color: #f8fafc !important;
+    /* Expander Hover Fix */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader:hover {
+        background-color: #475569 !important;
+        color: white !important;
     }
     
     /* Input alanlarının içindeki metni düzelt (Siyah kalsın ki okunsun) */
