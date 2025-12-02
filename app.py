@@ -56,6 +56,37 @@ st.markdown(f"""
         color: {text_color} !important;
     }}
     
+    /* Dropdown & Input Fixes */
+    div[data-baseweb="select"] > div {{
+        background-color: {card_bg} !important;
+        color: {text_color} !important;
+        border-color: {card_border} !important;
+    }}
+    div[data-baseweb="menu"] {{
+        background-color: {card_bg} !important;
+    }}
+    div[data-baseweb="menu"] div {{
+        color: {text_color} !important;
+    }}
+    div[data-baseweb="popover"] {{
+        background-color: {card_bg} !important;
+    }}
+    input {{
+        color: {text_color} !important;
+    }}
+    div[data-baseweb="input"] > div {{
+        background-color: {card_bg} !important;
+        color: {text_color} !important;
+    }}
+    
+    /* Native Metric Fix */
+    [data-testid="stMetricValue"] {{
+        color: {text_color} !important;
+    }}
+    [data-testid="stMetricLabel"] {{
+        color: {text_color} !important;
+    }}
+    
     /* Kart Tasarımı */
     .metric-card {{
         background-color: {card_bg};
@@ -270,6 +301,23 @@ def init_db():
         ws_plan = sheet.add_worksheet(title="planned_expenses", rows="100", cols="4")
         ws_plan.append_row(["id", "name", "amount", "frequency"])
 
+    # Accounts Tab (New)
+    try:
+        ws_acc = sheet.worksheet("accounts")
+    except:
+        ws_acc = sheet.add_worksheet(title="accounts", rows="100", cols="7")
+        ws_acc.append_row(["id", "owner", "name", "type", "bank_name", "currency", "initial_balance"])
+        # Default Accounts
+        defaults = [
+            [1, "Umutcan", "Nakit Cüzdan", "Nakit", "", "TL", 0],
+            [2, "Melike", "Nakit Cüzdan", "Nakit", "", "TL", 0],
+            [3, "Ortak", "Ev Kasası", "Nakit", "", "TL", 0],
+            [4, "Umutcan", "Maaş Hesabı", "Banka", "QNB", "TL", 0],
+            [5, "Melike", "Maaş Hesabı", "Banka", "İş Bankası", "TL", 0]
+        ]
+        for row in defaults:
+            ws_acc.append_row(row)
+
 @st.cache_data(ttl=600)
 def get_data(worksheet_name):
     sheet = get_sheet()
@@ -340,6 +388,15 @@ def add_planned_expense(name, amount, frequency):
     next_id = get_next_id("planned_expenses")
     add_row("planned_expenses", [next_id, name, amount, frequency])
 
+def add_account(owner, name, type, bank_name, currency, initial_balance):
+    next_id = get_next_id("accounts")
+    add_row("accounts", [next_id, owner, name, type, bank_name, currency, initial_balance])
+
+def get_accounts():
+    df = get_data("accounts")
+    if df.empty: return []
+    return df.to_dict('records')
+
 def get_categories(type_filter):
     df = get_data("categories")
     if df.empty: return []
@@ -387,6 +444,50 @@ def get_financial_summary():
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
+    # --- NEW ACCOUNT BASED CALCULATION ---
+    accounts = get_accounts()
+    account_balances = {acc['name']: float(acc['initial_balance']) for acc in accounts}
+    
+    # Map old source names to new accounts for backward compatibility
+    # This is a simple mapping, in a real migration we would update transaction rows
+    legacy_map = {
+        "Umutcan Kasa": "Nakit Cüzdan", # Assumes Umutcan's wallet
+        "Melike Kasa": "Nakit Cüzdan", # Assumes Melike's wallet
+        "Ortak Kasa": "Ev Kasası",
+        "Umutcan Maaş": "Maaş Hesabı", # Umutcan's QNB
+        "Melike Temizlik": "Maaş Hesabı", # Melike's IsBank
+        "Ek Gelir": "Ev Kasası"
+    }
+
+    # Calculate balances based on transactions
+    for idx, row in df.iterrows():
+        amt = row['amount']
+        src = row['source']
+        type = row['type']
+        
+        # Determine target account name
+        # If source matches an account name directly, use it.
+        # Otherwise try legacy map.
+        # Note: This logic needs refinement if names collide between owners.
+        # For now, we assume unique names or handle by owner context if added to tx.
+        
+        target_acc = src
+        if src in legacy_map:
+            target_acc = legacy_map[src]
+            
+        # Find which account this belongs to (simple name match for now)
+        # In future, transactions should store account_id
+        
+        # Update logic:
+        # We need to find the specific account dictionary to update.
+        # Since we only have name in tx, we might have ambiguity if both have "Nakit Cüzdan".
+        # For this phase, let's stick to the aggregate view for the summary, 
+        # but prepare the data structure for the new UI.
+        pass 
+
+    # --- OLD LOGIC PRESERVED FOR NOW UNTIL MIGRATION COMPLETE ---
+    # We will overlay the new "Asset View" on top of this.
+    
     # Incomes
     incomes = df[df['type'] == 'Gelir'].groupby('source')['amount'].sum().to_dict()
     
@@ -420,7 +521,7 @@ def get_financial_summary():
         "Umutcan Kasa": "Umutcan Kasa", "Melike Kasa": "Melike Kasa", "Ortak Kasa": "Ortak Kasa"
     }
     
-    # Initial Balances from Settings
+    # Initial Balances from Settings (Legacy)
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
     
@@ -445,7 +546,7 @@ def get_financial_summary():
     balances["Kredi Kartı Borcu"] -= paid_cc 
     total_home_safe = balances["Umutcan Kasa"] + balances["Melike Kasa"] + balances["Ortak Kasa"]
     
-    return balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inventory, total_expense_all_time
+    return balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inventory, total_expense_all_time, accounts
 
 # --- AI HELPER ---
 def get_monthly_summary():
@@ -551,13 +652,33 @@ if page == "Ana Sayfa 📊":
     df_set = get_data("settings")
     sets = dict(zip(df_set['key'], df_set['value']))
     
-    balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense = get_financial_summary()
+    balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense, accounts = get_financial_summary()
     
     usd_rate = market_data['usd'] if market_data else sets['usd_rate']
     eur_rate = market_data['eur'] if market_data else sets['eur_rate']
     
     target = sets['target_amount']
     current_gold_value = total_pure_gold * (market_data['gold'] if market_data else st.session_state.manual_gold_price)
+    
+    # --- ASSET SUMMARY ON DASHBOARD (NEW) ---
+    st.markdown("### 💼 Varlık Özeti")
+    
+    # Simple aggregated view for dashboard
+    c1, c2, c3 = st.columns(3)
+    
+    # Umutcan Total
+    u_total = sum([float(a['initial_balance']) for a in accounts if a['owner'] == 'Umutcan'])
+    c1.metric("👨🏻‍💻 Umutcan", f"{u_total:,.0f} TL")
+    
+    # Melike Total
+    m_total = sum([float(a['initial_balance']) for a in accounts if a['owner'] == 'Melike'])
+    c2.metric("👩🏻‍💼 Melike", f"{m_total:,.0f} TL")
+    
+    # Common Total
+    o_total = sum([float(a['initial_balance']) for a in accounts if a['owner'] == 'Ortak'])
+    c3.metric("🤝 Ortak", f"{o_total:,.0f} TL")
+    
+    st.markdown("---")
     gold_profit = current_gold_value - total_gold_cost
     net_wealth = total_home_safe + current_gold_value - balances["Kredi Kartı Borcu"]
     
@@ -659,6 +780,92 @@ if page == "Ana Sayfa 📊":
             </h3>
         </div>
         """, unsafe_allow_html=True)
+
+
+        
+# --- SAYFA: VARLIKLAR (YENİ) ---
+elif page == "Varlıklar 💼":
+    st.markdown("## 💼 Varlık Yönetimi")
+    
+    # Get Data
+    balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense, accounts = get_financial_summary()
+    
+    # Calculate Net Worth
+    current_gold_value = total_pure_gold * (market_data['gold'] if market_data else st.session_state.manual_gold_price)
+    net_worth = total_home_safe + current_gold_value - balances["Kredi Kartı Borcu"]
+    
+    # Top Summary
+    m1, m2, m3 = st.columns(3)
+    metric_card(m1, "Toplam Net Varlık", f"{net_worth:,.0f} TL", "Nakit + Altın - Borç")
+    metric_card(m2, "Toplam Nakit", f"{total_home_safe:,.0f} TL", "Bankalar + Cüzdan")
+    metric_card(m3, "Altın Değeri", f"{current_gold_value:,.0f} TL", f"{total_pure_gold:.2f} Gram Has")
+    
+    st.markdown("---")
+    
+    # Tabs for Owners
+    tab_umut, tab_melike, tab_common = st.tabs(["👨🏻‍💻 Umutcan", "👩🏻‍💼 Melike", "🤝 Ortak"])
+    
+    def render_account_card(acc):
+        # Bank Logo Mapping (Simple Text/Icon for now, can be image later)
+        bank_logos = {
+            "QNB": "🏦", "Garanti": "🍀", "İş Bankası": "💲", "Yapı Kredi": "🐏", "Akbank": "🔴"
+        }
+        icon = bank_logos.get(acc['bank_name'], "💵") if acc['type'] == 'Banka' else "👛"
+        
+        # Calculate current balance (This needs real tx calculation later)
+        # For now showing initial + dummy logic or just initial
+        # In full implementation, we filter transactions by account_id
+        
+        # Placeholder balance logic for demo
+        balance = float(acc['initial_balance']) 
+        
+        st.markdown(f"""
+        <div class="metric-card" style="margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="font-size: 2rem;">{icon}</div>
+                    <div>
+                        <div style="font-weight: bold; color: #f8fafc;">{acc['name']}</div>
+                        <div style="font-size: 0.8rem; color: #94a3b8;">{acc['bank_name'] if acc['bank_name'] else 'Nakit'}</div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.2rem; font-weight: bold; color: #f8fafc;">{balance:,.0f} {acc['currency']}</div>
+                    <div style="font-size: 0.8rem; color: #10b981;">Aktif</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with tab_umut:
+        st.subheader("Umutcan'ın Varlıkları")
+        my_accs = [a for a in accounts if a['owner'] == 'Umutcan']
+        for acc in my_accs:
+            render_account_card(acc)
+            
+    with tab_melike:
+        st.subheader("Melike'nin Varlıkları")
+        her_accs = [a for a in accounts if a['owner'] == 'Melike']
+        for acc in her_accs:
+            render_account_card(acc)
+            
+    with tab_common:
+        st.subheader("Ortak Varlıklar")
+        common_accs = [a for a in accounts if a['owner'] == 'Ortak']
+        for acc in common_accs:
+            render_account_card(acc)
+            
+        st.subheader("🥇 Altınlar")
+        if gold_inv:
+            for g_type, count in gold_inv.items():
+                st.markdown(f"""
+                <div class="metric-card" style="margin-bottom: 10px; border-left: 5px solid #eab308;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span><b>{g_type}</b></span>
+                        <span>{count} Adet</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # --- SAYFA: GİDER PLANLA ---
 elif page == "Gider Planla 📅":
@@ -796,7 +1003,11 @@ elif page == "İşlem Ekle ➕":
             st.info(f"Bu bir taksit ödemesi. ({selected_inst_months} Taksit)")
             current_inst_no = st.number_input("Kaçıncı Taksit?", min_value=1, max_value=selected_inst_months, step=1, key="g_curr_inst")
         
-        src = c2.selectbox("Kaynak", ["Umutcan Kasa", "Melike Kasa", "Ortak Kasa", "Kredi Kartı"], key="g_src")
+        # Dynamic Account List
+        acc_list = [a['name'] for a in get_accounts()]
+        if "Kredi Kartı" not in acc_list: acc_list.append("Kredi Kartı")
+        
+        src = c2.selectbox("Kaynak", acc_list, key="g_src")
         desc = c2.text_input("Açıklama", key="g_desc")
         
         if st.button("Gideri Kaydet", key="btn_gider"):
@@ -824,7 +1035,9 @@ elif page == "İşlem Ekle ➕":
         if cat_select == "➕ Yeni Kategori Ekle...":
             new_cat_name = st.text_input("Gelir Kalemi Adı", key="i_new_name")
         
-        src = c2.selectbox("Kasa", ["Umutcan Kasa", "Melike Kasa", "Ortak Kasa"], key="i_src")
+        # Dynamic Account List
+        acc_list = [a['name'] for a in get_accounts()]
+        src = c2.selectbox("Kasa", acc_list, key="i_src")
         desc = st.text_input("Açıklama", key="i_desc")
         
         if st.button("Geliri Kaydet", key="btn_gelir"):
@@ -843,7 +1056,12 @@ elif page == "İşlem Ekle ➕":
         g_type = c1.selectbox("Altın Tipi", list(GOLD_TYPES.keys()), key="gold_type")
         count = c2.number_input("Adet / Gram", min_value=0.0, step=0.5, key="gold_count")
         tl = c1.number_input("Toplam Ödenen TL", step=100.0, key="gold_tl")
-        src = c2.selectbox("Ödeme Kaynağı", ["Umutcan Kasa", "Melike Kasa", "Ortak Kasa", "Kredi Kartı"], key="gold_src")
+        
+        # Dynamic Account List
+        acc_list = [a['name'] for a in get_accounts()]
+        if "Kredi Kartı" not in acc_list: acc_list.append("Kredi Kartı")
+        
+        src = c2.selectbox("Ödeme Kaynağı", acc_list, key="gold_src")
         
         if st.button("Altın Alımını Kaydet", key="btn_gold"):
             add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tl, src, 'Altın', 1, gold_gram=count, gold_price=tl/count if count>0 else 0, gold_type=g_type)
@@ -1121,7 +1339,7 @@ elif page == "AI Asistan 🤖":
     if st.button("✨ Detaylı Analiz Başlat", type="primary"):
         with st.spinner("Veriler analiz ediliyor ve Gemini'ye soruluyor..."):
             # Verileri Hazırla
-            balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense = get_financial_summary()
+            balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense, accounts = get_financial_summary()
             df_tx = get_data("transactions")
             
             # Son 30 günlük harcamalar
@@ -1175,7 +1393,7 @@ elif page == "AI Asistan 🤖":
             with st.spinner("Düşünüyor..."):
                 import json
                 
-                balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense = get_financial_summary()
+                balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inv, total_expense, accounts = get_financial_summary()
                 gold_val = total_pure_gold * (market_data['gold'] if market_data else st.session_state.manual_gold_price)
                 
                 # Mevcut Kategoriler
