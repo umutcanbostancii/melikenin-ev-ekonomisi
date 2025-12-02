@@ -350,13 +350,44 @@ def update_row_by_id(worksheet_name, id_val, col_name, new_val):
     cell = ws.find(str(id_val), in_column=1) # Assuming ID is col 1
     if cell:
         # Find col index
-        header = ws.row_values(1)
+        headers = ws.row_values(1)
         try:
-            col_idx = header.index(col_name) + 1
+            col_idx = headers.index(col_name) + 1
             ws.update_cell(cell.row, col_idx, new_val)
             clear_cache()
-        except:
+        except ValueError:
             pass
+
+def update_row(worksheet_name, filter_col, filter_val, updates_dict):
+    """
+    Updates a row where filter_col == filter_val with values in updates_dict.
+    updates_dict: { 'col_name': new_value }
+    """
+    sheet = get_sheet()
+    ws = sheet.worksheet(worksheet_name)
+    
+    # 1. Find the row
+    # We need to find the column index for filter_col first
+    headers = ws.row_values(1)
+    try:
+        filter_col_idx = headers.index(filter_col) + 1
+    except ValueError:
+        return False # Filter column not found
+        
+    cell = ws.find(str(filter_val), in_column=filter_col_idx)
+    
+    if cell:
+        # 2. Update columns
+        for col_key, new_val in updates_dict.items():
+            try:
+                target_col_idx = headers.index(col_key) + 1
+                ws.update_cell(cell.row, target_col_idx, new_val)
+            except ValueError:
+                continue # Target column not found
+        clear_cache()
+        return True
+    return False
+
 
 def update_settings(key, value):
     sheet = get_sheet()
@@ -397,6 +428,58 @@ def get_accounts():
     if df.empty: return []
     return df.to_dict('records')
 
+def update_account_balance(account_name, target_balance):
+    """
+    Updates the initial_balance of an account such that the CURRENT balance becomes target_balance.
+    New Initial = Target - (Current - Old Initial)
+    """
+    # 1. Get Current State
+    balances, _, _, _, _, _, accounts = get_financial_summary()
+    
+    # 2. Find the account
+    acc = next((a for a in accounts if a['name'] == account_name), None)
+    if not acc:
+        return False, f"Hesap bulunamadı: {account_name}"
+        
+    current_bal = balances.get(account_name, 0)
+    old_initial = float(acc['initial_balance'])
+    
+    # 3. Calculate necessary initial balance
+    # Current = Initial + Delta  => Delta = Current - Initial
+    # Target = New_Initial + Delta
+    # New_Initial = Target - Delta = Target - (Current - Initial)
+    
+    delta = current_bal - old_initial
+    new_initial = target_balance - delta
+    
+    # 4. Update DB
+    update_row("accounts", "name", account_name, {"initial_balance": new_initial})
+    return True, f"{account_name} bakiyesi {target_balance} TL olarak güncellendi."
+
+def modify_account_balance(account_name, amount, operation="add"):
+    """
+    Directly modifies the account balance by adding or subtracting an amount.
+    This updates the 'initial_balance' in the database.
+    Returns: (Success, Old Balance, New Balance)
+    """
+    accounts = get_accounts()
+    acc = next((a for a in accounts if a['name'] == account_name), None)
+    
+    if not acc:
+        return False, 0, 0
+        
+    old_initial = float(acc['initial_balance'])
+    
+    if operation == "add":
+        new_initial = old_initial + amount
+    elif operation == "subtract":
+        new_initial = old_initial - amount
+    else:
+        return False, 0, 0
+        
+    update_row("accounts", "name", account_name, {"initial_balance": new_initial})
+    return True, old_initial, new_initial
+
 def get_categories(type_filter):
     df = get_data("categories")
     if df.empty: return []
@@ -435,117 +518,83 @@ def get_market_data():
 
 def get_financial_summary():
     df = get_data("transactions")
-    if df.empty:
-        return {"Umutcan Kasa": 0, "Melike Kasa": 0, "Ortak Kasa": 0, "Kredi Kartı Borcu": 0}, 0, 0, 0, {}, 0
-
-    # Ensure numeric columns are numeric
-    cols = ['amount', 'gold_gram', 'gold_price']
-    for c in cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-
-    # --- NEW ACCOUNT BASED CALCULATION ---
     accounts = get_accounts()
-    account_balances = {acc['name']: float(acc['initial_balance']) for acc in accounts}
     
-    # Map old source names to new accounts for backward compatibility
-    # This is a simple mapping, in a real migration we would update transaction rows
-    legacy_map = {
-        "Umutcan Kasa": "Nakit Cüzdan", # Assumes Umutcan's wallet
-        "Melike Kasa": "Nakit Cüzdan", # Assumes Melike's wallet
-        "Ortak Kasa": "Ev Kasası",
-        "Umutcan Maaş": "Maaş Hesabı", # Umutcan's QNB
-        "Melike Temizlik": "Maaş Hesabı", # Melike's IsBank
-        "Ek Gelir": "Ev Kasası"
-    }
-
-    # Calculate balances based on transactions
-    for idx, row in df.iterrows():
-        amt = row['amount']
-        src = row['source']
-        type = row['type']
-        
-        # Determine target account name
-        # If source matches an account name directly, use it.
-        # Otherwise try legacy map.
-        # Note: This logic needs refinement if names collide between owners.
-        # For now, we assume unique names or handle by owner context if added to tx.
-        
-        target_acc = src
-        if src in legacy_map:
-            target_acc = legacy_map[src]
-            
-        # Find which account this belongs to (simple name match for now)
-        # In future, transactions should store account_id
-        
-        # Update logic:
-        # We need to find the specific account dictionary to update.
-        # Since we only have name in tx, we might have ambiguity if both have "Nakit Cüzdan".
-        # For this phase, let's stick to the aggregate view for the summary, 
-        # but prepare the data structure for the new UI.
-        pass 
-
-    # --- OLD LOGIC PRESERVED FOR NOW UNTIL MIGRATION COMPLETE ---
-    # We will overlay the new "Asset View" on top of this.
-    
-    # Incomes
-    incomes = df[df['type'] == 'Gelir'].groupby('source')['amount'].sum().to_dict()
-    
-    # Expenses
-    expenses = df[df['type'] == 'Gider'].groupby('source')['amount'].sum().to_dict()
-    
-    # Total Expense All Time
-    total_expense_all_time = df[df['type'] == 'Gider']['amount'].sum()
-    
-    # Gold
-    gold_df = df[df['type'] == 'Altın Alım']
-    total_gold_cost = gold_df['amount'].sum()
-    
-    gold_inventory = {}
-    total_pure_gold = 0
-    if not gold_df.empty:
-        # Group by gold_type
-        g_grouped = gold_df.groupby('gold_type')['gold_gram'].sum()
-        for g_type, count in g_grouped.items():
-            multiplier = GOLD_TYPES.get(g_type, 1.0)
-            pure_equivalent = count * multiplier
-            total_pure_gold += pure_equivalent
-            gold_inventory[g_type] = count
-            
-    # CC Payments
-    paid_cc = df[(df['type'] == 'Gider') & (df['category'] == 'Kredi Kartı Ödeme')]['amount'].sum()
-
-    # Balances
-    source_map = {
-        "Umutcan Maaş": "Umutcan Kasa", "Melike Temizlik": "Melike Kasa", "Ek Gelir": "Ortak Kasa",
-        "Umutcan Kasa": "Umutcan Kasa", "Melike Kasa": "Melike Kasa", "Ortak Kasa": "Ortak Kasa"
-    }
-    
-    # Initial Balances from Settings (Legacy)
-    df_set = get_data("settings")
-    sets = dict(zip(df_set['key'], df_set['value']))
+    # --- 1. Calculate Balances from Accounts (Source of Truth) ---
+    # We now trust the 'accounts' table for current balances.
+    # The 'initial_balance' in accounts table is actually treated as 'current_balance' 
+    # by the update_account_balance logic.
     
     balances = {
-        "Umutcan Kasa": float(sets.get('start_balance_umutcan', 0)),
-        "Melike Kasa": float(sets.get('start_balance_melike', 0)),
-        "Ortak Kasa": float(sets.get('start_balance_common', 0)),
-        "Kredi Kartı Borcu": float(sets.get('start_debt_cc', 0))
+        "Umutcan Kasa": 0, 
+        "Melike Kasa": 0, 
+        "Ortak Kasa": 0, 
+        "Kredi Kartı Borcu": 0
     }
     
-    for src, amt in incomes.items():
-        mapped = source_map.get(src, "Ortak Kasa")
-        if mapped in balances: balances[mapped] += amt
+    # Aggregation Logic
+    for acc in accounts:
+        owner = acc['owner']
+        name = acc['name']
+        bal = float(acc['initial_balance'])
         
-    for src, amt in expenses.items():
-        if src == "Kredi Kartı":
-            balances["Kredi Kartı Borcu"] += amt
-        else:
-            mapped = source_map.get(src, "Ortak Kasa")
-            if mapped in balances: balances[mapped] -= amt
+        # Map specific accounts to summary keys
+        if owner == "Umutcan":
+            balances["Umutcan Kasa"] += bal
+        elif owner == "Melike":
+            balances["Melike Kasa"] += bal
+        elif owner == "Ortak":
+            balances["Ortak Kasa"] += bal
+            
+    # Credit Card Debt is still separate in settings for now, or should be an account?
+    # For now, let's keep reading it from settings as legacy, unless we migrate it to an account.
+    df_set = get_data("settings")
+    sets = dict(zip(df_set['key'], df_set['value']))
+    balances["Kredi Kartı Borcu"] = float(sets.get('start_debt_cc', 0))
+    
+    # Adjust CC debt based on transactions (Legacy logic, maybe keep?)
+    # If we want "Current Debt", we should probably just use the setting if AI updates it directly.
+    # But if AI adds "Expense" -> "Credit Card", debt should increase.
+    # Let's keep the CC logic for now as it's not fully migrated to 'accounts' table yet.
+    
+    if not df.empty:
+        # Ensure numeric columns
+        cols = ['amount', 'gold_gram', 'gold_price']
+        for c in cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
-    balances["Kredi Kartı Borcu"] -= paid_cc 
+        # CC Logic
+        expenses = df[df['type'] == 'Gider'].groupby('source')['amount'].sum().to_dict()
+        paid_cc = df[(df['type'] == 'Gider') & (df['category'] == 'Kredi Kartı Ödeme')]['amount'].sum()
+        
+        cc_expense = expenses.get("Kredi Kartı", 0)
+        balances["Kredi Kartı Borcu"] += cc_expense
+        balances["Kredi Kartı Borcu"] -= paid_cc
+
+    # --- 2. Calculate Totals ---
     total_home_safe = balances["Umutcan Kasa"] + balances["Melike Kasa"] + balances["Ortak Kasa"]
     
+    # --- 3. Gold & Other Stats ---
+    total_pure_gold = 0
+    total_gold_cost = 0
+    gold_inventory = {}
+    total_expense_all_time = 0
+    
+    if not df.empty:
+        total_expense_all_time = df[df['type'] == 'Gider']['amount'].sum()
+        
+        gold_df = df[df['type'] == 'Altın Alım']
+        total_gold_cost = gold_df['amount'].sum()
+        
+        if not gold_df.empty:
+            g_grouped = gold_df.groupby('gold_type')['gold_gram'].sum()
+            for g_type, count in g_grouped.items():
+                multiplier = GOLD_TYPES.get(g_type, 1.0)
+                pure_equivalent = count * multiplier
+                total_pure_gold += pure_equivalent
+                gold_inventory[g_type] = count
+
     return balances, total_pure_gold, total_gold_cost, total_home_safe, gold_inventory, total_expense_all_time, accounts
 
 # --- AI HELPER ---
@@ -1019,8 +1068,25 @@ elif page == "İşlem Ekle ➕":
                 st.success(f"Yeni kategori '{new_cat_name}' oluşturuldu.")
             
             add_transaction(datetime.date.today(), 'Gider', final_cat, amt, src, desc, 1, installment_number=current_inst_no)
-            st.success("İşlem Kaydedildi.")
-            time.sleep(1)
+            
+            # Update Balance
+            success, old_bal, new_bal = modify_account_balance(src, amt, "subtract")
+            
+            if success:
+                st.markdown(f"""
+                <div style="background-color: #fef2f2; border: 1px solid #ef4444; padding: 15px; border-radius: 10px; margin-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #991b1b; font-weight: bold;">💸 İşlem Başarılı!</span>
+                        <span style="font-size: 0.8em; color: #7f1d1d;">Önceki: {old_bal:,.0f} TL</span>
+                    </div>
+                    <div style="font-size: 1.5em; font-weight: bold; color: #dc2626;">-{amt:,.0f} TL</div>
+                    <div style="font-size: 1.1em; color: #1e293b; margin-top: 5px;">Yeni Bakiye: <b>{new_bal:,.0f} TL</b> ({src})</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("İşlem Kaydedildi (Bakiye güncellenemedi - Kredi Kartı olabilir).")
+                
+            time.sleep(3)
             st.rerun()
             
     with t2:
@@ -1047,8 +1113,25 @@ elif page == "İşlem Ekle ➕":
                 final_cat = new_cat_name
             
             add_transaction(datetime.date.today(), 'Gelir', final_cat, amt, src, desc, 1)
-            st.success("Kaydedildi.")
-            time.sleep(1)
+            
+            # Update Balance
+            success, old_bal, new_bal = modify_account_balance(src, amt, "add")
+            
+            if success:
+                st.markdown(f"""
+                <div style="background-color: #f0fdf4; border: 1px solid #22c55e; padding: 15px; border-radius: 10px; margin-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #14532d; font-weight: bold;">💰 Gelir Eklendi!</span>
+                        <span style="font-size: 0.8em; color: #14532d;">Önceki: {old_bal:,.0f} TL</span>
+                    </div>
+                    <div style="font-size: 1.5em; font-weight: bold; color: #16a34a;">+{amt:,.0f} TL</div>
+                    <div style="font-size: 1.1em; color: #1e293b; margin-top: 5px;">Yeni Bakiye: <b>{new_bal:,.0f} TL</b> ({src})</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("Kaydedildi.")
+                
+            time.sleep(3)
             st.rerun()
             
     with t3:
@@ -1065,8 +1148,25 @@ elif page == "İşlem Ekle ➕":
         
         if st.button("Altın Alımını Kaydet", key="btn_gold"):
             add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tl, src, 'Altın', 1, gold_gram=count, gold_price=tl/count if count>0 else 0, gold_type=g_type)
-            st.success("Portföye Eklendi.")
-            time.sleep(1)
+            
+            # Update Balance (Expense)
+            success, old_bal, new_bal = modify_account_balance(src, tl, "subtract")
+            
+            if success:
+                st.markdown(f"""
+                <div style="background-color: #fffbeb; border: 1px solid #f59e0b; padding: 15px; border-radius: 10px; margin-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #78350f; font-weight: bold;">🥇 Altın Alındı!</span>
+                        <span style="font-size: 0.8em; color: #78350f;">Önceki: {old_bal:,.0f} TL</span>
+                    </div>
+                    <div style="font-size: 1.5em; font-weight: bold; color: #d97706;">-{tl:,.0f} TL</div>
+                    <div style="font-size: 1.1em; color: #1e293b; margin-top: 5px;">Yeni Bakiye: <b>{new_bal:,.0f} TL</b> ({src})</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("Portföye Eklendi.")
+                
+            time.sleep(3)
             st.rerun()
 
 # --- SAYFA: GEÇMİŞ & DÜZENLE ---
@@ -1411,60 +1511,87 @@ elif page == "AI Asistan 🤖":
 
                 # Aylık Özet (Tahmin ve Anormallik için)
                 monthly_summary = get_monthly_summary()
+                
+                # Hesap Listesi ve Bakiyeler
+                acc_details = []
+                for a in accounts:
+                    bal = balances.get(a['name'], 0)
+                    acc_details.append(f"{a['name']}: {bal:,.0f} {a['currency']}")
+                acc_context_str = "\n                ".join(acc_details)
 
                 context = f"""
-                Sen akıllı bir finansal asistansın. Kullanıcı sana bir soru sorabilir, işlem eklemek/silmek isteyebilir veya grafik isteyebilir.
+                Sen akıllı bir finansal asistansın. Kullanıcı sana bir soru sorabilir, işlem eklemek/silmek isteyebilir, grafik isteyebilir veya hesap bakiyelerini güncelleyebilir.
                 
                 **Mevcut Kategoriler:** {', '.join(all_cats)}
-                **Mevcut Kaynaklar:** Umutcan Kasa, Melike Kasa, Ortak Kasa, Kredi Kartı
+                
+                **Mevcut Hesaplar ve Bakiyeler:**
+                {acc_context_str}
+                
+                **Kredi Kartı:** "Kredi Kartı" da bir kaynaktır. Borç: {balances.get('Kredi Kartı Borcu', 0):,.0f} TL
                 
                 **Kullanıcı Girdisi:** {prompt}
                 
-                1. EĞER kullanıcı bir işlem EKLEMEK istiyorsa:
+                1. EĞER kullanıcı bir işlem EKLEMEK istiyorsa (Harcama, Gelir, Transfer):
+                   - Harcama: type="Gider"
+                   - Gelir: type="Gelir"
+                   - Transfer (Örn: "Hesaptan 200 çektim"): Bunu iki işlem olarak yap:
+                     1. Gider (Kaynak: Banka, Kategori: Transfer, Açıklama: Nakite Transfer)
+                     2. Gelir (Kaynak: Nakit, Kategori: Transfer, Açıklama: Bankadan Transfer)
+                   
                 {{
                     "action": "add_transaction",
                     "type": "Gider" veya "Gelir" veya "Altın Alım",
                     "amount": 0.0,
                     "category": "En uygun kategori",
-                    "source": "En uygun kaynak",
+                    "source": "En uygun kaynak (Mevcut Hesaplardan biri)",
                     "description": "Açıklama",
                     "is_new_category": true/false,
                     "gold_gram": 0.0,
                     "gold_type": "Gram 24k"
                 }}
                 
-                2. EĞER kullanıcı bir işlem SİLMEK istiyorsa (Örn: "Son market harcamasını sil"):
+                2. EĞER kullanıcı BAKİYE GÜNCELLEMEK istiyorsa (Örn: "Şu an cebimde 500 TL var", "Bankada 10.000 TL var"):
                 {{
-                    "action": "delete_transaction",
-                    "query": "Silinecek işlemi tanımlayan kısa metin (örn: son migros harcaması)"
+                    "action": "update_balance",
+                    "account_name": "Hesap Adı (Tam eşleşmeli)",
+                    "amount": 0.0 (Yeni güncel bakiye)
                 }}
                 
-                3. EĞER kullanıcı GRAFİK istiyorsa (Örn: "Benzin harcamalarımı çiz", "Gider dağılımımı göster"):
+                3. EĞER kullanıcı bir işlem SİLMEK istiyorsa:
+                {{
+                    "action": "delete_transaction",
+                    "query": "Silinecek işlemi tanımlayan kısa metin"
+                }}
+                
+                4. EĞER kullanıcı GRAFİK istiyorsa:
                 {{
                     "action": "plot",
-                    "plot_type": "line" (zaman serisi) veya "pie" (dağılım) veya "bar",
+                    "plot_type": "line" veya "pie" veya "bar",
                     "category": "Hepsi" veya spesifik kategori,
                     "title": "Grafik Başlığı"
                 }}
 
-                4. EĞER kullanıcı SOHBET ediyorsa (Soru, Tahmin, Anormallik vb.):
+                5. EĞER kullanıcı SOHBET ediyorsa:
                 {{
                     "action": "chat",
-                    "response": "Cevabın..."
+                    "response": "Cevabın"
                 }}
                 
-                **Veriler:**
-                - Nakit: {total_home_safe:,.0f} TL
-                - Altın: {gold_val:,.0f} TL
-                - Borç: {balances['Kredi Kartı Borcu']:,.0f} TL
-                - Son İşlemler: \n{recent_tx_str}
-                - Aylık Özet (Trend Analizi İçin): \n{monthly_summary}
+                **ÖNEMLİ:** Birden fazla işlem varsa (örn: "Markete gittim 100 TL, sonra 200 TL çektim"), JSON listesi döndür: [{{...}}, {{...}}]
                 """
                 
-                raw_response = get_gemini_advice(context)
-                cleaned_response = raw_response.replace("```json", "").replace("```", "").strip()
-                
                 try:
+                    # Configure API Key explicitly here as well, or ensure it's global
+                    if "gemini_api_key" in st.secrets:
+                        genai.configure(api_key=st.secrets["gemini_api_key"])
+                    
+                    model = genai.GenerativeModel('gemini-3-pro-preview')
+                    response = model.generate_content(context)
+                    
+                    cleaned_response = response.text.strip()
+                    if cleaned_response.startswith("```json"):
+                        cleaned_response = cleaned_response[7:-3]
+                    
                     data = json.loads(cleaned_response)
                     
                     # Normalize to list
@@ -1478,57 +1605,68 @@ elif page == "AI Asistan 🤖":
                             st.session_state.pending_txs.append(action_data)
                             added_tx_count += 1
                             
+                        elif action == "update_balance":
+                            acc_name = action_data.get("account_name")
+                            tgt_bal = action_data.get("amount")
+                            success, msg = update_account_balance(acc_name, tgt_bal)
+                            if success:
+                                st.session_state.messages.append({"role": "assistant", "content": f"✅ {msg}"})
+                            else:
+                                st.session_state.messages.append({"role": "assistant", "content": f"❌ {msg}"})
+                            
                         elif action == "delete_transaction":
-                            query = action_data.get("query", "").lower()
-                            target_tx = None
+                            query = action_data.get("query")
+                            # Simple fuzzy match on description or category
+                            # This part needs a real search function, for now just listing last 5 to delete?
+                            # Or better, just ask user to delete manually from list.
+                            # Let's implement a simple "Find and Delete" candidate
                             
-                            if not df_tx.empty:
-                                for idx, row in last_txs.iterrows():
-                                    search_text = f"{row['category']} {row['description']} {row['amount']}".lower()
-                                    if any(word in search_text for word in query.split()):
-                                        target_tx = row
-                                        break
-                            
-                            if target_tx is not None:
-                                st.session_state.pending_delete = int(target_tx['id'])
-                                st.session_state.messages.append({"role": "assistant", "content": f"🗑️ İşlem silinsin mi? ({target_tx['description']})", "is_pending_delete": True})
+                            candidates = df_tx[df_tx['description'].str.contains(query, case=False, na=False) | df_tx['category'].str.contains(query, case=False, na=False)]
+                            if not candidates.empty:
+                                to_del = candidates.iloc[0]
+                                st.session_state.pending_delete = to_del.to_dict()
+                                st.session_state.messages.append({"role": "assistant", "content": f"🗑️ Şu işlemi silmek istiyor musun: {to_del['description']} ({to_del['amount']} TL)?"})
                                 st.rerun()
                             else:
-                                st.session_state.messages.append({"role": "assistant", "content": f"❌ Silinecek işlem bulunamadı: {query}"})
+                                st.session_state.messages.append({"role": "assistant", "content": f"❌ '{query}' ile eşleşen işlem bulunamadı."})
 
                         elif action == "plot":
-                            st.markdown(f"📊 **{action_data.get('title', 'Grafik')}**")
-                            chart_df = df_tx.copy()
-                            chart_df['date'] = pd.to_datetime(chart_df['date'])
+                            p_type = action_data.get("plot_type")
+                            p_cat = action_data.get("category")
+                            p_title = action_data.get("title")
                             
-                            if action_data.get('category') != "Hepsi":
-                                chart_df = chart_df[chart_df['category'].str.contains(action_data.get('category'), case=False, na=False)]
+                            st.session_state.messages.append({"role": "assistant", "content": f"📊 {p_title} grafiği hazırlanıyor..."})
                             
-                            if action_data.get('plot_type') == 'line':
-                                fig = px.line(chart_df.sort_values('date'), x='date', y='amount', color='category', title=action_data.get('title'))
-                            elif action_data.get('plot_type') == 'pie':
-                                fig = px.pie(chart_df, values='amount', names='category', title=action_data.get('title'))
-                            else:
-                                fig = px.bar(chart_df, x='date', y='amount', color='category', title=action_data.get('title'))
+                            # Filter Data
+                            plot_df = df_tx.copy()
+                            if p_cat != "Hepsi":
+                                plot_df = plot_df[plot_df['category'] == p_cat]
                                 
-                            st.plotly_chart(fig, use_container_width=True)
-                            st.session_state.messages.append({"role": "assistant", "content": f"İşte grafik: {action_data.get('title')}"})
+                            if p_type == "line":
+                                fig = px.line(plot_df, x='date', y='amount', title=p_title)
+                                st.plotly_chart(fig)
+                            elif p_type == "pie":
+                                fig = px.pie(plot_df, values='amount', names='category', title=p_title)
+                                st.plotly_chart(fig)
+                            elif p_type == "bar":
+                                fig = px.bar(plot_df, x='category', y='amount', title=p_title)
+                                st.plotly_chart(fig)
 
                         elif action == "chat":
                              st.session_state.messages.append({"role": "assistant", "content": action_data.get("response")})
                         
                         else:
                              # Fallback
-                             response_text = action_data.get("response", raw_response)
+                             response_text = action_data.get("response", cleaned_response)
                              st.session_state.messages.append({"role": "assistant", "content": response_text})
 
                     if added_tx_count > 0:
                         st.session_state.messages.append({"role": "assistant", "content": f"✅ {added_tx_count} işlem hazırlandı. Aşağıdan onaylayabilirsin."})
                         st.rerun()
                         
-                except json.JSONDecodeError:
-                    st.markdown(raw_response)
-                    st.session_state.messages.append({"role": "assistant", "content": raw_response})
+                except Exception as e:
+                    st.error(f"AI Hatası: {e}")
+                    st.session_state.messages.append({"role": "assistant", "content": "Üzgünüm, bir hata oluştu."})
 
     # Bekleyen İşlem Onayı (EKLEME)
     if "pending_txs" in st.session_state and st.session_state.pending_txs:
