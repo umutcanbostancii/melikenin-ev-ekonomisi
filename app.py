@@ -893,26 +893,37 @@ elif page == "Geçmiş & Düzenle 📝":
         df = get_data("transactions")
         if not df.empty:
             df = df.sort_values(by='id', ascending=False).head(50)
+            # Headers
+            h1, h2, h3, h4, h5, h6 = st.columns([2, 2, 2, 2, 4, 2])
+            h1.markdown("**📅 Tarih**")
+            h2.markdown("**📌 Tür**")
+            h3.markdown("**💰 Tutar**")
+            h4.markdown("**👤 Kaynak**")
+            h5.markdown("**📝 Açıklama**")
+            h6.markdown("**⚙️ İşlem**")
+            st.markdown("---")
+
             for idx, tx in df.iterrows():
                 with st.container():
-                    c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 3, 2])
-                    c1.write(f"**{tx['date']}**")
+                    c1, c2, c3, c4, c5, c6 = st.columns([2, 2, 2, 2, 4, 2])
+                    c1.write(f"{tx['date']}")
                     
                     type_lbl = tx['type']
                     if tx['type'] == "Altın Alım": type_lbl = f"{tx['gold_type']} ({tx['gold_gram']})"
                     
                     c2.write(type_lbl)
                     c3.write(f"{tx['amount']:,.0f} TL")
-                    c4.write(f"{tx['category']} - {tx['description']}")
+                    c4.write(f"{tx['source']}")
+                    c5.write(f"**{tx['category']}** - {tx['description']}")
                     
-                    b1, b2 = c5.columns(2)
+                    b1, b2 = c6.columns(2)
                     if b1.button("✏️", key=f"edit_{tx['id']}"):
                         st.session_state.edit_id = tx['id']
                         st.rerun()
                     if b2.button("🗑️", key=f"del_{tx['id']}"):
                         delete_row_by_id("transactions", tx['id'])
                         st.rerun()
-                    st.markdown("---")
+                    st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
 
 # --- SAYFA: EMİNEVİM ---
 elif page == "Eminevim 🏠":
