@@ -420,7 +420,16 @@ def get_financial_summary():
         "Umutcan Kasa": "Umutcan Kasa", "Melike Kasa": "Melike Kasa", "Ortak Kasa": "Ortak Kasa"
     }
     
-    balances = {"Umutcan Kasa": 0, "Melike Kasa": 0, "Ortak Kasa": 0, "Kredi Kartı Borcu": 0}
+    # Initial Balances from Settings
+    df_set = get_data("settings")
+    sets = dict(zip(df_set['key'], df_set['value']))
+    
+    balances = {
+        "Umutcan Kasa": float(sets.get('start_balance_umutcan', 0)),
+        "Melike Kasa": float(sets.get('start_balance_melike', 0)),
+        "Ortak Kasa": float(sets.get('start_balance_common', 0)),
+        "Kredi Kartı Borcu": float(sets.get('start_debt_cc', 0))
+    }
     
     for src, amt in incomes.items():
         mapped = source_map.get(src, "Ortak Kasa")
@@ -1048,6 +1057,17 @@ elif page == "Ayarlar 🛠️":
         start_date_inp = c3.date_input("Proje Başlangıç Tarihi", value=d_val)
         del_month_inp = c4.number_input("Teslimat Kaçıncı Ayda?", value=int(sets.get('eminevim_delivery_month', 5)))
 
+        st.subheader("💰 Açılış Bakiyeleri (Nakit/Kart)")
+        st.caption("Sisteme başlarken elinizde olan nakit veya mevcut kart borcunuzu buraya girin.")
+        
+        b1, b2 = st.columns(2)
+        init_umutcan = b1.number_input("Umutcan Kasa (Başlangıç)", value=float(sets.get('start_balance_umutcan', 0)))
+        init_melike = b2.number_input("Melike Kasa (Başlangıç)", value=float(sets.get('start_balance_melike', 0)))
+        
+        b3, b4 = st.columns(2)
+        init_common = b3.number_input("Ortak Kasa (Başlangıç)", value=float(sets.get('start_balance_common', 0)))
+        init_cc_debt = b4.number_input("Kredi Kartı Mevcut Borç", value=float(sets.get('start_debt_cc', 0)))
+
         st.subheader("Diğer Ayarlar")
         c5, c6 = st.columns(2)
         su = c5.number_input("Umutcan Maaş", value=float(sets.get('salary_umutcan', 0)))
@@ -1058,6 +1078,16 @@ elif page == "Ayarlar 🛠️":
         
         if st.form_submit_button("Ayarları Kaydet"):
             update_settings('target_amount', target_amt)
+            update_settings('eminevim_fee_rate', fee_rate_inp)
+            update_settings('eminevim_start_date', start_date_inp.strftime('%Y-%m-%d'))
+            update_settings('eminevim_delivery_month', del_month_inp)
+            
+            update_settings('start_balance_umutcan', init_umutcan)
+            update_settings('start_balance_melike', init_melike)
+            update_settings('start_balance_common', init_common)
+            update_settings('start_debt_cc', init_cc_debt)
+            
+            update_settings('salary_umutcan', su)
             update_settings('eminevim_fee_rate', fee_rate_inp)
             update_settings('eminevim_start_date', start_date_inp.strftime('%Y-%m-%d'))
             update_settings('eminevim_delivery_month', del_month_inp)
