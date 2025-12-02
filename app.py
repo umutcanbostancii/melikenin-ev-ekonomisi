@@ -1068,6 +1068,8 @@ elif page == "AI Asistan 🤖":
     # Session State Başlatma
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "pending_txs" not in st.session_state:
+        st.session_state.pending_txs = []
 
     # Mesaj Geçmişini Göster
     for message in st.session_state.messages:
@@ -1205,102 +1207,97 @@ elif page == "AI Asistan 🤖":
                 
                 try:
                     data = json.loads(cleaned_response)
-                    action = data.get("action")
                     
-                    if action == "add_transaction":
-                        st.markdown(f"✅ **İşlem Algılandı:**")
-                        st.info(f"""
-                        **Tip:** {data['type']}
-                        **Tutar:** {data['amount']} TL
-                        **Kategori:** {data['category']}
-                        **Açıklama:** {data['description']}
-                        """)
-                        st.session_state.pending_tx = data
-                        st.session_state.messages.append({"role": "assistant", "content": "İşlemi onaylıyor musun?", "is_pending": True})
-                        st.rerun()
+                    # Normalize to list
+                    actions_list = data if isinstance(data, list) else [data]
+                    added_tx_count = 0
+                    
+                    for action_data in actions_list:
+                        action = action_data.get("action")
                         
-                    elif action == "delete_transaction":
-                        # Silinecek işlemi bulmaya çalış
-                        query = data.get("query", "").lower()
-                        target_tx = None
-                        
-                        if not df_tx.empty:
-                            # Basit bir arama mantığı: Son 10 işlemde ara
-                            for idx, row in last_txs.iterrows():
-                                search_text = f"{row['category']} {row['description']} {row['amount']}".lower()
-                                if any(word in search_text for word in query.split()):
-                                    target_tx = row
-                                    break
-                        
-                        if target_tx is not None:
-                            st.markdown(f"🗑️ **Silinecek İşlem Bulundu:**")
-                            st.warning(f"""
-                            **Tarih:** {target_tx['date'].strftime('%Y-%m-%d')}
-                            **Kategori:** {target_tx['category']}
-                            **Tutar:** {target_tx['amount']} TL
-                            **Açıklama:** {target_tx['description']}
-                            """)
-                            st.session_state.pending_delete = int(target_tx['id'])
-                            st.session_state.messages.append({"role": "assistant", "content": "Bu işlemi silmek istediğine emin misin?", "is_pending_delete": True})
-                            st.rerun()
-                        else:
-                            st.error("Silinecek işlem bulunamadı.")
-                            st.session_state.messages.append({"role": "assistant", "content": "Silinecek işlemi bulamadım. Daha spesifik olabilir misin?"})
-
-                    elif action == "plot":
-                        st.markdown(f"📊 **{data.get('title', 'Grafik')}**")
-                        
-                        chart_df = df_tx.copy()
-                        chart_df['date'] = pd.to_datetime(chart_df['date'])
-                        
-                        if data.get('category') != "Hepsi":
-                            chart_df = chart_df[chart_df['category'].str.contains(data.get('category'), case=False, na=False)]
-                        
-                        if data.get('plot_type') == 'line':
-                            fig = px.line(chart_df.sort_values('date'), x='date', y='amount', color='category', title=data.get('title'))
-                        elif data.get('plot_type') == 'pie':
-                            fig = px.pie(chart_df, values='amount', names='category', title=data.get('title'))
-                        else:
-                            fig = px.bar(chart_df, x='date', y='amount', color='category', title=data.get('title'))
+                        if action == "add_transaction":
+                            st.session_state.pending_txs.append(action_data)
+                            added_tx_count += 1
                             
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.session_state.messages.append({"role": "assistant", "content": f"İşte istediğin grafik: {data.get('title')}"})
+                        elif action == "delete_transaction":
+                            query = action_data.get("query", "").lower()
+                            target_tx = None
+                            
+                            if not df_tx.empty:
+                                for idx, row in last_txs.iterrows():
+                                    search_text = f"{row['category']} {row['description']} {row['amount']}".lower()
+                                    if any(word in search_text for word in query.split()):
+                                        target_tx = row
+                                        break
+                            
+                            if target_tx is not None:
+                                st.session_state.pending_delete = int(target_tx['id'])
+                                st.session_state.messages.append({"role": "assistant", "content": f"🗑️ İşlem silinsin mi? ({target_tx['description']})", "is_pending_delete": True})
+                                st.rerun()
+                            else:
+                                st.session_state.messages.append({"role": "assistant", "content": f"❌ Silinecek işlem bulunamadı: {query}"})
 
-                    else:
-                        response_text = data.get("response", raw_response)
-                        st.markdown(response_text)
-                        st.session_state.messages.append({"role": "assistant", "content": response_text})
+                        elif action == "plot":
+                            st.markdown(f"📊 **{action_data.get('title', 'Grafik')}**")
+                            chart_df = df_tx.copy()
+                            chart_df['date'] = pd.to_datetime(chart_df['date'])
+                            
+                            if action_data.get('category') != "Hepsi":
+                                chart_df = chart_df[chart_df['category'].str.contains(action_data.get('category'), case=False, na=False)]
+                            
+                            if action_data.get('plot_type') == 'line':
+                                fig = px.line(chart_df.sort_values('date'), x='date', y='amount', color='category', title=action_data.get('title'))
+                            elif action_data.get('plot_type') == 'pie':
+                                fig = px.pie(chart_df, values='amount', names='category', title=action_data.get('title'))
+                            else:
+                                fig = px.bar(chart_df, x='date', y='amount', color='category', title=action_data.get('title'))
+                                
+                            st.plotly_chart(fig, use_container_width=True)
+                            st.session_state.messages.append({"role": "assistant", "content": f"İşte grafik: {action_data.get('title')}"})
+
+                        elif action == "chat":
+                             st.session_state.messages.append({"role": "assistant", "content": action_data.get("response")})
+                        
+                        else:
+                             # Fallback
+                             response_text = action_data.get("response", raw_response)
+                             st.session_state.messages.append({"role": "assistant", "content": response_text})
+
+                    if added_tx_count > 0:
+                        st.session_state.messages.append({"role": "assistant", "content": f"✅ {added_tx_count} işlem hazırlandı. Aşağıdan onaylayabilirsin."})
+                        st.rerun()
                         
                 except json.JSONDecodeError:
                     st.markdown(raw_response)
                     st.session_state.messages.append({"role": "assistant", "content": raw_response})
 
     # Bekleyen İşlem Onayı (EKLEME)
-    if "pending_tx" in st.session_state and st.session_state.pending_tx:
+    if "pending_txs" in st.session_state and st.session_state.pending_txs:
         with st.chat_message("assistant"):
-            st.write("Yukarıdaki işlemi onaylıyor musun?")
-            c1, c2 = st.columns(2)
-            if c1.button("✅ Evet, Kaydet", type="primary", use_container_width=True):
-                tx = st.session_state.pending_tx
-                if tx.get("is_new_category"):
-                    add_category(tx['category'], tx['type'])
-                
-                if tx['type'] == 'Altın Alım':
-                     add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tx['amount'], tx['source'], 'Altın Alımı', 1, gold_gram=tx.get('gold_gram', 0), gold_price=tx['amount']/tx.get('gold_gram', 1), gold_type=tx.get('gold_type', 'Gram 24k'))
-                else:
-                    add_transaction(datetime.date.today(), tx['type'], tx['category'], tx['amount'], tx['source'], tx['description'], 1)
-                
-                st.success("İşlem Başarıyla Kaydedildi! 🎉")
-                st.session_state.messages.append({"role": "assistant", "content": "✅ İşlem kaydedildi."})
-                del st.session_state.pending_tx
-                time.sleep(1)
-                st.rerun()
-                
-            if c2.button("❌ İptal", type="secondary", use_container_width=True):
-                st.warning("İşlem iptal edildi.")
-                st.session_state.messages.append({"role": "assistant", "content": "❌ İşlem iptal edildi."})
-                del st.session_state.pending_tx
-                st.rerun()
+            st.write("⏳ **Bekleyen İşlemler**")
+            
+            for i, tx in enumerate(st.session_state.pending_txs):
+                with st.expander(f"{i+1}. {tx.get('description', 'İşlem')} ({tx.get('amount')} TL)", expanded=True):
+                    st.write(f"**Kategori:** {tx.get('category')} | **Tip:** {tx.get('type')}")
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ Onayla", key=f"confirm_{i}"):
+                        if tx.get("is_new_category"):
+                            add_category(tx['category'], tx['type'])
+                        
+                        if tx['type'] == 'Altın Alım':
+                             add_transaction(datetime.date.today(), 'Altın Alım', 'Yatırım', tx['amount'], tx['source'], 'Altın Alımı', 1, gold_gram=tx.get('gold_gram', 0), gold_price=tx['amount']/tx.get('gold_gram', 1), gold_type=tx.get('gold_type', 'Gram 24k'))
+                        else:
+                            add_transaction(datetime.date.today(), tx['type'], tx['category'], tx['amount'], tx['source'], tx['description'], 1)
+                        
+                        st.success("İşlem Başarıyla Kaydedildi! 🎉")
+                        st.session_state.messages.append({"role": "assistant", "content": f"✅ İşlem kaydedildi: {tx.get('description')}"})
+                        st.session_state.pending_txs.pop(i)
+                        st.rerun()
+                        
+                    if c2.button("❌ İptal", key=f"cancel_{i}"):
+                        st.warning("İşlem iptal edildi.")
+                        st.session_state.pending_txs.pop(i)
+                        st.rerun()
 
     # Bekleyen İşlem Onayı (SİLME)
     if "pending_delete" in st.session_state and st.session_state.pending_delete:
